@@ -1,0 +1,7 @@
+node_modules/
+package*.json
+check*.mjs
+swatches.png
+crop_*.png
+grid_*.png
+.npm/
