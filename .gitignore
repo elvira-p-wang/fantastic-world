@@ -5,3 +5,4 @@ swatches.png
 crop_*.png
 grid_*.png
 .npm/
+.DS_Store

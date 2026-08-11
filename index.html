@@ -10,25 +10,96 @@
   canvas{position:fixed;inset:0;display:block}
   /* overlay = canonical portrait composition-safe area, centred; sized by JS */
   #overlay{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
-    pointer-events:none;opacity:.5;display:none;z-index:5}
-  #ui{position:fixed;top:12px;right:12px;display:flex;gap:8px;align-items:center;
+    pointer-events:none;opacity:.5;display:none;z-index:20}
+  /* debug UI: hidden by default in presentation state, toggle with ` */
+  #ui{position:fixed;top:12px;right:12px;display:none;gap:8px;align-items:center;
     background:rgba(20,25,70,.72);border:1px solid rgba(247,220,194,.25);
-    border-radius:8px;padding:8px 10px;color:#f7dcc2;font-size:11px;z-index:10}
+    border-radius:8px;padding:8px 10px;color:#f7dcc2;font-size:11px;z-index:30}
+  #ui.show{display:flex}
   #ui button{background:none;border:1px solid rgba(247,220,194,.45);color:#f7dcc2;
     border-radius:5px;padding:3px 8px;font:inherit;cursor:pointer}
   #ui button.on{background:#f7dcc2;color:#2f3f9d}
   #ui input[type=range]{width:80px;accent-color:#f7dcc2}
   #hint{position:fixed;bottom:10px;right:14px;color:rgba(247,220,194,.45);
-    font-size:10px;z-index:10}
+    font-size:10px;z-index:30;display:none}
+  #hint.show{display:block}
+
+  /* ============ poster graphic layer: title / subtitle / date ============
+     Real crops from the artwork — crisp brush lettering, never a font.
+     Three layout variants share one verified-safe placement corridor:
+     title box stays left of the oboe/clarinet cluster (poster px<~300) and
+     above the clarinet tip (py<~175); date sits in the gap below the
+     right-city fringe (py>890) and left of the flute road's low exit
+     (px<~640 for py 950-1040). Variants differ in scale/rhythm/alignment
+     only — none reach into that geometry. */
+  #posterLayer{position:fixed;inset:0;z-index:15;pointer-events:none}
+  #posterLayer .pl-inner{position:absolute;left:50%;top:50%;
+    transform:translate(-50%,-50%);width:min(100vw,66.7vh);aspect-ratio:2/3;}
+  .type-title img, .type-sub img, .type-date img{display:block;width:100%;
+    filter:drop-shadow(0 1px 2px rgba(20,25,70,.22))}
+  .type-title, .type-sub, .type-date{position:absolute}
+  .institution{font-family:Georgia,'Times New Roman',serif;color:#f7dcc2;
+    text-transform:uppercase;white-space:nowrap;opacity:.94}
+  .rule{position:absolute;height:2px;background:#f7dcc2;opacity:.55}
+
+  /* Date zone: verified clear of both the flute-road's bottom-right exit
+     (left edge ~87-89% for py 1000-1053) and the staff ribbon's bottom-left
+     tail (right edge ~50% at py~1046) — all three variants stay right of
+     55% and right-edge at or inside 85% to keep margin from the road. */
+
+  /* ---- Variant A: editorial asymmetric — conservative, generous margins ---- */
+  [data-variant="A"] .type-title{left:2.5%;top:3.0%;width:34%}
+  [data-variant="A"] .institution{left:2.8%;top:15.6%;font-size:clamp(8px,1.05vw,13px);
+    letter-spacing:.32em}
+  [data-variant="A"] .type-sub{left:2.8%;top:18.6%;width:26%}
+  [data-variant="A"] .type-date{right:15%;top:92.5%;width:26%}
+  [data-variant="A"] .rule{display:none}
+
+  /* ---- Variant B: original-poster inspired — tighter rhythm, slightly larger ---- */
+  [data-variant="B"] .type-title{left:2.2%;top:2.2%;width:37%}
+  [data-variant="B"] .institution{left:2.5%;top:14.6%;font-size:clamp(8px,1.05vw,13px);
+    letter-spacing:.28em}
+  [data-variant="B"] .type-sub{left:2.5%;top:17.3%;width:28%}
+  [data-variant="B"] .type-date{right:15%;top:93.6%;width:24%}
+  [data-variant="B"] .rule{display:none}
+
+  /* ---- Variant C: experimental — corner-hugging title + rule, airier date ---- */
+  [data-variant="C"] .type-title{left:1.8%;top:1.8%;width:36%}
+  [data-variant="C"] .rule{left:2.0%;top:14.0%;width:32%}
+  [data-variant="C"] .institution{left:2.0%;top:15.6%;font-size:clamp(8px,1.1vw,14px);
+    letter-spacing:.36em}
+  [data-variant="C"] .type-sub{left:2.0%;top:18.6%;width:25%}
+  [data-variant="C"] .type-date{right:15%;top:91.2%;width:28%}
+
+  /* ---- variant switcher (dev tool for this review round) ---- */
+  #varSwitch{position:fixed;top:12px;left:12px;display:flex;gap:6px;z-index:30;
+    background:rgba(20,25,70,.72);border:1px solid rgba(247,220,194,.25);
+    border-radius:8px;padding:6px;font-family:ui-monospace,Menlo,monospace}
+  #varSwitch button{background:none;border:1px solid rgba(247,220,194,.45);
+    color:#f7dcc2;border-radius:5px;padding:3px 10px;font:inherit;font-size:11px;
+    cursor:pointer}
+  #varSwitch button.on{background:#f7dcc2;color:#2f3f9d}
 </style>
 </head>
 <body>
 <img id="overlay" src="poster.png" alt="">
+<div id="posterLayer" data-variant="A"><div class="pl-inner" id="plInner">
+  <div class="type-title"><img src="title.png" alt="Fantastic World"></div>
+  <div class="rule"></div>
+  <div class="institution">Sydney University</div>
+  <div class="type-sub"><img src="subtitle.png" alt="Wind Orchestra"></div>
+  <div class="type-date"><img src="date.png" alt="31 Oct 2026 · 7:00 PM"></div>
+</div></div>
+<div id="varSwitch">
+  <button data-v="A" class="on">A</button>
+  <button data-v="B">B</button>
+  <button data-v="C">C</button>
+</div>
 <div id="ui">
   <button id="btnOverlay">poster&nbsp;[O]</button>
   <input id="opacity" type="range" min="0" max="100" value="50">
 </div>
-<div id="hint">move mouse for parallax</div>
+<div id="hint">move mouse for parallax · ` to hide dev UI</div>
 
 <script type="importmap">
 { "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js" } }
@@ -380,6 +451,36 @@ function buildRibbon(pts, wStart, wEnd, powr, colors){
     [205,988, 5.6],[320,1046,6.4],[465,1092,7.0],[600,1130,7.5],
   ].map(a=>posterAt(a[0],a[1],a[2]));
   buildRibbon(path, 0.9, 2.4, 1.7, {base:P.cream, deep:P.creamDeep, staff:true});
+
+  /* musical notation on the ribbon surface — flat 2D marks, camera-facing sprites
+     so they stay crisp poster graphics rather than thick 3D objects. Clef is a
+     real crop from the artwork; notes are simple flat glyphs in the same ink. */
+  const texLoader=new THREE.TextureLoader();
+  texLoader.load('clefnotes.png', tex=>{
+    tex.colorSpace=THREE.NoColorSpace;
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false}));
+    const asp=127/93;
+    sp.scale.set(1.5*asp,1.5,1);
+    const anchor=posterAt(160,822,3.15); anchor.y+=0.08;
+    sp.position.copy(anchor); world.add(sp);
+  });
+  function noteTexture(){
+    const c=document.createElement('canvas'); c.width=64; c.height=96;
+    const ctx=c.getContext('2d'); ctx.fillStyle='#29368e';
+    ctx.beginPath(); ctx.ellipse(36,80,15,10,-0.32,0,7); ctx.fill();
+    ctx.fillRect(49,16,4.5,64);
+    ctx.beginPath(); ctx.moveTo(53.5,16); ctx.quadraticCurveTo(70,26,53.5,42);
+    ctx.quadraticCurveTo(65,32,53.5,28); ctx.fill();
+    return new THREE.CanvasTexture(c);
+  }
+  const noteTex=noteTexture();
+  const noteAnchors=[[300,1005,6.0,0.34],[420,1075,6.7,0.30],[540,1120,7.2,0.26]];
+  for(const [px,py,z,sc] of noteAnchors){
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:noteTex,transparent:true,depthWrite:false}));
+    sp.scale.set(sc*0.667,sc,1);
+    const anchor=posterAt(px,py,z); anchor.y+=0.10;
+    sp.position.copy(anchor); world.add(sp);
+  }
 
   /* conductor — tiny navy figure, arms raised (poster ~(152,932)) */
   const cp=posterAt(152,932,4.82); cp.y+=0.10;
@@ -966,25 +1067,52 @@ const cityRight=new THREE.Group(); world.add(cityRight);
   /* cream connector path flowing down toward the right city */
   const cpath=[[642,318,-11.2],[608,362,-9.4],[578,408,-7.6]].map(q=>posterAt(q[0],q[1],q[2]));
   buildRibbon(cpath, 0.45, 0.75, 1.0, {base:P.cream, deep:P.creamDeep});
-  const timp=(x,r,bodyM)=>{
-    const t=new THREE.Group(); t.position.set(x,0.75,0); g.add(t);
-    const bowl=new THREE.Mesh(new THREE.SphereGeometry(r,18,10,0,Math.PI*2,Math.PI/2,Math.PI/2),bodyM);
-    bowl.position.y=r*0.85; t.add(bowl);
-    const head=new THREE.Mesh(new THREE.CircleGeometry(r*0.98,20),M.peach());
-    head.rotation.x=-Math.PI/2+0.28; head.position.y=r*0.88; t.add(head);
+  /* recognisable kettle silhouette: bulbous lathe bowl, thin rim, restrained tripod */
+  const timp=(x,r,bodyM,yOff=0)=>{
+    const t=new THREE.Group(); t.position.set(x,0.62+yOff,0); g.add(t);
+    const prof=[]; const N=11;
+    for(let i=0;i<=N;i++){
+      const tt=i/N;
+      const rad=Math.max(r*(0.16+0.98*Math.sin(tt*Math.PI*0.94)),0.015);
+      prof.push(new THREE.Vector2(rad, tt*r*1.28));
+    }
+    const bowl=new THREE.Mesh(new THREE.LatheGeometry(prof,22),bodyM); t.add(bowl);
+    const rim=new THREE.Mesh(new THREE.TorusGeometry(r*0.90,r*0.045,8,20),M.creamF());
+    rim.rotation.x=Math.PI/2; rim.position.y=r*1.27; t.add(rim);
+    const head=new THREE.Mesh(new THREE.CircleGeometry(r*0.88,20),M.peach());
+    head.rotation.x=-Math.PI/2+0.05; head.position.y=r*1.28; t.add(head);
     for(let i=0;i<3;i++){
-      const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,r*1.1,6),M.navyF());
-      const a=i*2.1+0.5; leg.position.set(Math.sin(a)*r*0.6,0.28,Math.cos(a)*r*0.55);
-      leg.rotation.z=Math.sin(a)*0.35; t.add(leg);
+      const leg=new THREE.Mesh(new THREE.CylinderGeometry(r*0.028,r*0.034,r*0.85,6),M.navyF());
+      const a=i*2.094+0.4;
+      leg.position.set(Math.sin(a)*r*0.55,-r*0.40,Math.cos(a)*r*0.5);
+      leg.rotation.z=Math.sin(a)*0.32; leg.rotation.x=-Math.cos(a)*0.32; t.add(leg);
     }
     return t;
   };
-  timp(-1.5,0.78,M.coral()); timp(0.1,0.66,M.yellow()); timp(1.35,0.56,M.coral());
-  /* cymbal on stand */
-  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.035,1.7,6),M.navyF());
-  pole.position.set(2.45,1.4,0); g.add(pole);
-  const cym=new THREE.Mesh(new THREE.ConeGeometry(0.55,0.10,20),M.yellow());
-  cym.position.set(2.45,2.3,0); g.add(cym);
+  timp(-1.5,0.78,M.coral(),0.04); timp(0.1,0.66,M.yellow(),-0.03); timp(1.35,0.56,M.coral(),0.07);
+
+  /* cymbal: very thin lathe disc with a subtle central dome + tripod stand */
+  {
+    const cx=2.5;
+    const prof=[
+      new THREE.Vector2(0.0,   0.055),
+      new THREE.Vector2(0.085, 0.048),
+      new THREE.Vector2(0.085, 0.028),
+      new THREE.Vector2(0.30,  0.017),
+      new THREE.Vector2(0.55,  0.009),
+      new THREE.Vector2(0.55,  0.0),
+    ];
+    const cym=new THREE.Mesh(new THREE.LatheGeometry(prof,28),M.yellow());
+    cym.position.set(cx,2.15,0); g.add(cym);
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.028,0.040,1.55,8),M.navyF());
+    pole.position.set(cx,1.4,0); g.add(pole);
+    for(let i=0;i<3;i++){
+      const a=i*2.094+0.3;
+      const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.022,0.028,0.62,6),M.navyF());
+      leg.position.set(cx+Math.sin(a)*0.26,0.75,Math.cos(a)*0.26);
+      leg.rotation.z=Math.sin(a)*0.55; leg.rotation.x=-Math.cos(a)*0.55; g.add(leg);
+    }
+  }
 }
 
 /* ---------- distant silhouette cards (quiet background) ---------- */
@@ -1086,6 +1214,9 @@ function resize(){
   const ow=Math.min(w, h*CANON);
   const ov=document.getElementById('overlay');
   ov.style.width=ow+'px'; ov.style.height=(ow*1.5)+'px';
+  /* poster graphic layer tracks the same canonical safe area as the overlay */
+  const pl=document.getElementById('plInner');
+  pl.style.width=ow+'px'; pl.style.height=(ow*1.5)+'px';
   const pw=Math.round(w*renderer.getPixelRatio()), ph=Math.round(h*renderer.getPixelRatio());
   if(rt) rt.dispose();
   rt=new THREE.WebGLRenderTarget(pw,ph,{samples:4});
@@ -1094,18 +1225,37 @@ function resize(){
 }
 addEventListener('resize',resize); resize();
 
-/* ================= overlay UI ================= */
+/* ================= debug UI (hidden by default; ` toggles presentation vs dev) ================= */
 const overlay=document.getElementById('overlay');
 const btn=document.getElementById('btnOverlay');
 const slider=document.getElementById('opacity');
+const uiPanel=document.getElementById('ui');
+const hintEl=document.getElementById('hint');
 function setOverlay(on){
   overlay.style.display=on?'block':'none';
   btn.classList.toggle('on',on);
 }
 btn.onclick=()=>setOverlay(overlay.style.display==='none');
 slider.oninput=()=>overlay.style.opacity=slider.value/100;
+
+/* typography layout variant switcher — A/B/C review round only */
+const posterLayer=document.getElementById('posterLayer');
+const varButtons=[...document.querySelectorAll('#varSwitch button')];
+function setVariant(v){
+  posterLayer.dataset.variant=v;
+  varButtons.forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+}
+varButtons.forEach(b=>b.onclick=()=>setVariant(b.dataset.v));
+
 addEventListener('keydown',e=>{
   if(e.key==='o'||e.key==='O') setOverlay(overlay.style.display==='none');
+  if(e.key==='`'){
+    const on=uiPanel.classList.toggle('show'); hintEl.classList.toggle('show',on);
+    if(!on) setOverlay(false);
+  }
+  if(e.key==='a'||e.key==='A') setVariant('A');
+  if(e.key==='b'||e.key==='B') setVariant('B');
+  if(e.key==='c'||e.key==='C') setVariant('C');
 });
 
 /* ================= loop ================= */
