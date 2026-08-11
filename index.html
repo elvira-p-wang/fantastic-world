@@ -5,12 +5,14 @@
 <title>Fantastic World — Composition Greybox</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  html,body{margin:0;height:100%;background:#2f3f9d;overflow:hidden;
-    font-family:ui-monospace,Menlo,monospace}
+  /* real long page: document scrolls, canvas is a fixed window behind it */
+  html,body{margin:0;background:#2f3f9d;font-family:ui-monospace,Menlo,monospace;
+    overflow-x:hidden}
+  #scroll-space{height:700vh;pointer-events:none}
   canvas{position:fixed;inset:0;display:block}
-  /* overlay = canonical portrait composition-safe area, centred; sized by JS */
-  #overlay{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
-    pointer-events:none;opacity:.5;display:none;z-index:5}
+  /* overlay = master poster tracing guide, tracks the current camera crop */
+  #overlay{position:fixed;left:0;top:0;pointer-events:none;opacity:.5;
+    display:none;z-index:5}
   #ui{position:fixed;top:12px;right:12px;display:flex;gap:8px;align-items:center;
     background:rgba(20,25,70,.72);border:1px solid rgba(247,220,194,.25);
     border-radius:8px;padding:8px 10px;color:#f7dcc2;font-size:11px;z-index:10}
@@ -23,12 +25,13 @@
 </style>
 </head>
 <body>
+<div id="scroll-space"></div>
 <img id="overlay" src="poster.png" alt="">
 <div id="ui">
   <button id="btnOverlay">poster&nbsp;[O]</button>
   <input id="opacity" type="range" min="0" max="100" value="50">
 </div>
-<div id="hint">move mouse for parallax</div>
+<div id="hint">scroll the page to travel · 1-8: jump to section · F: overview · O: poster overlay</div>
 
 <script type="importmap">
 { "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js" } }
@@ -181,7 +184,7 @@ function archTrim(w,h,t){
   outer.holes.push(hole);
   return new THREE.ShapeGeometry(outer);
 }
-function blobShape(rx,rz,seed,irr=0.3){
+function blobPath(rx,rz,seed,irr=0.3){
   const s=new THREE.Shape(); const N=14;
   for(let i=0;i<=N;i++){
     const a=i/N*Math.PI*2;
@@ -189,7 +192,13 @@ function blobShape(rx,rz,seed,irr=0.3){
     const x=Math.cos(a)*rx*j, y=Math.sin(a)*rz*j;
     if(i===0)s.moveTo(x,y); else s.lineTo(x,y);
   }
-  return new THREE.ShapeGeometry(s,24);
+  return s;
+}
+function blobShape(rx,rz,seed,irr=0.3){ return new THREE.ShapeGeometry(blobPath(rx,rz,seed,irr),24); }
+/* painterly horizontal ledge (extruded blob) — for terraces */
+function ledgeMesh(rx,rz,seed,irr,th,m){
+  const g=new THREE.Mesh(new THREE.ExtrudeGeometry(blobPath(rx,rz,seed,irr),{depth:th,bevelEnabled:false}),m);
+  g.rotation.x=-Math.PI/2; return g;
 }
 function mountain(w,h,bumps,seed){
   const s=new THREE.Shape(); s.moveTo(-w/2,0);
@@ -675,6 +684,49 @@ const cityRight=new THREE.Group(); world.add(cityRight);
   }
   mkHouse({p:posterAt(532,662,-0.5), w:0.9,h:1.2,d:0.7, body:M.blush(), roof:'flat', door:1});
   mkHouse({p:posterAt(586,674, 0.2), w:0.8,h:1.0,d:0.6, body:M.cream(), roof:'cone', rMat:M.coral()});
+
+  /* dense descending fringe around the winding path (poster 470-660, 640-890) */
+  const RC=[
+    [492,646,-1.0, 0.8,1.05,0.6,'peach','flat',{door:1}],
+    [516,700, 0.2, 0.9,0.9,0.65,'mint','flat',{}],
+    [478,732, 1.0, 0.7,1.2,0.55,'blush','cone',{}],
+    [560,716,-0.3, 0.75,0.8,0.6,'cream','flat',{door:1}],
+    [634,762, 0.6, 0.9,1.1,0.7,'lilac','flat',{}],
+    [594,806, 1.6, 0.8,0.85,0.6,'salmon','flat',{door:1}],
+    [646,838, 2.2, 0.7,0.7,0.5,'peach','cone',{}],
+    [610,884, 2.8, 0.85,0.75,0.6,'azure','flat',{}],
+  ];
+  for(const [px,py,z,w,h,d,b,r,o] of RC)
+    mkHouse({p:posterAt(px,py,z), w,h,d, body:M[b](), roof:r,
+      rMat:r==='cone'?M.coral():M.cream(), door:o.door, seed:px});
+  /* arch fragment spanning the path + terraces at offset elevations */
+  const ab=new THREE.Mesh(archedWall(1.6,1.5,0.7,[{x:0,w:0.85,h:1.1}]),M.blush());
+  ab.position.copy(posterAt(600,742,1.2)); ab.rotation.y=0.15; world.add(ab);
+  const t1=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.18,1.0),M.azure());
+  t1.position.copy(posterAt(505,676,-0.2)); world.add(t1);
+  const t2=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.16,0.9),M.cream());
+  t2.position.copy(posterAt(628,800,1.2)); world.add(t2);
+  const stw=mkStairs(6,0.24,0.14,0.5,M.yellow());
+  stw.position.copy(posterAt(548,742,0.6)); stw.rotation.y=-0.5;
+}
+
+/* ---------- upper transition: light elevated terraces toward the percussion ---------- */
+{
+  const steps=[[520,398,-7,1.6,1.0],[478,352,-8,1.3,0.8],[545,335,-9,1.1,0.7]];
+  for(const [px,py,z,rx,rz] of steps){
+    const m=ledgeMesh(rx,rz,px*0.1,0.35,0.22,M.cream());
+    m.position.copy(posterAt(px,py,z)); world.add(m);
+  }
+  mkHouse({p:posterAt(520,392,-7).add(new THREE.Vector3(0,0.22,0)),
+    w:0.6,h:0.7,d:0.45, body:M.blush(), roof:'cone', rMat:M.coral()});
+  mkHouse({p:posterAt(545,330,-9).add(new THREE.Vector3(0,0.22,0)),
+    w:0.5,h:0.55,d:0.4, body:M.mint(), roof:'flat'});
+}
+
+/* ---------- foreground occluder: cropped arch in front of the ribbon curl ---------- */
+{
+  const fg=new THREE.Mesh(archedWall(2.0,2.6,0.8,[{x:0,w:1.1,h:1.9}]),M.salmon());
+  fg.position.copy(posterAt(292,708,4.4)); fg.rotation.y=-0.08; world.add(fg);
 }
 
 /* ---------- trumpet proxy rising from the right city — poster (672,470) ---------- */
@@ -710,13 +762,24 @@ const cityRight=new THREE.Group(); world.add(cityRight);
 {
   const tp=posterAt(628,300,-12);
   const g=new THREE.Group(); g.position.copy(tp); world.add(g);
-  const mound=new THREE.Mesh(new THREE.SphereGeometry(1,24,14,0,Math.PI*2,0,Math.PI/2),M.cream());
-  mound.scale.set(3.5,1.0,2.1); g.add(mound);
+  /* irregular painterly terrace — stacked uneven ledges, not a saucer */
+  const ledges=[
+    [3.3,1.9, 4.2,0.34,0.30,  0.0,0.00, 0.0, 0.0],
+    [2.5,1.5, 8.9,0.38,0.26,  0.45,0.30,0.15, 0.5],
+    [1.7,1.1,13.1,0.42,0.22,  0.15,0.56,-0.1, 1.1],
+  ];
+  for(const [rx,rz,seed,irr,th,dx,dy,dz,rot] of ledges){
+    const m=ledgeMesh(rx,rz,seed,irr,th,M.cream());
+    m.position.set(dx,dy,dz); m.rotation.z=rot; g.add(m);
+  }
+  /* small stair off the terrace lip */
+  const tst=mkStairs(4,0.20,0.12,0.45,M.yellow(),g);
+  tst.position.set(-2.6,-0.35,0.4); tst.rotation.y=Math.PI-0.2;
   /* cream connector path flowing down toward the right city */
   const cpath=[[642,318,-11.2],[608,362,-9.4],[578,408,-7.6]].map(q=>posterAt(q[0],q[1],q[2]));
   buildRibbon(cpath, 0.45, 0.75, 1.0, {base:P.cream, deep:P.creamDeep});
   const timp=(x,r,bodyM)=>{
-    const t=new THREE.Group(); t.position.set(x,0.75,0); g.add(t);
+    const t=new THREE.Group(); t.position.set(x,0.85,0); g.add(t);
     const bowl=new THREE.Mesh(new THREE.SphereGeometry(r,18,10,0,Math.PI*2,Math.PI/2,Math.PI/2),bodyM);
     bowl.position.y=r*0.85; t.add(bowl);
     const head=new THREE.Mesh(new THREE.CircleGeometry(r*0.98,20),M.peach());
@@ -769,33 +832,76 @@ distantCard(-22.0,-0.6,-19,1.2,false);
     mat(P.mauveLight,P.mauveLight,P.mauveLight,{depth:0.45,mottle:0.04}), 16.5,1.2,-18);
 }
 
-/* ================= camera + parallax (approved) ================= */
+/* ================= camera rig: cinematic window into the master world =================
+   The portrait poster is the master world (map). The viewport is a travelling
+   window: overview mode frames the whole poster; journey mode shows a
+   monumental section and scrolling walks an S-path up through the composition. */
 const camera=new THREE.OrthographicCamera();
-const cur={az:base.az,el:base.el}, tgt={az:base.az,el:base.el};
+const SECTION_H = 10;                 // journey window ≈ 47% of the poster height
+const FULL_H = ORTHO_H;               // overview: whole master world
+const RIGHTV=new THREE.Vector3(cosAz,0,-sinAz);
+const UPV=new THREE.Vector3(-sinAz*sinEl,cosEl,-cosAz*sinEl);
+const sxOf=px=>(px/724-0.5)*FRUS_W, syOf=py=>(0.5-py/1086)*FRUS_H;
+/* the journey: conductor → ribbon → horn → trombone city → woodwinds →
+   winding right city → percussion → celestial arrival */
+const WAY=[
+  [250,980],[150,810],[150,500],[350,545],[400,330],[580,720],[615,290],[480,120],
+].map(([px,py])=>new THREE.Vector3(sxOf(px),syOf(py),0));
+const journey=new THREE.CatmullRomCurve3(WAY,false,'centripetal',0.5);
+let fullMode=false, tJourney=0;   // page top = journey start (conductor)
+const cur={az:base.az,el:base.el,h:FULL_H,sx:0,sy:0};
+const tgt={az:base.az,el:base.el,h:FULL_H,sx:0,sy:0};
+function retarget(){
+  if(fullMode){ tgt.h=FULL_H; tgt.sx=0; tgt.sy=0; }
+  else{
+    const p=journey.getPoint(THREE.MathUtils.clamp(tJourney,0,1));
+    tgt.h=SECTION_H; tgt.sx=p.x; tgt.sy=p.y;
+  }
+}
 function placeCamera(){
+  const look=LOOK.clone().addScaledVector(RIGHTV,cur.sx).addScaledVector(UPV,cur.sy);
   const {az,el}=cur;
   camera.position.set(
-    LOOK.x+DIST*Math.sin(az)*Math.cos(el),
-    LOOK.y+DIST*Math.sin(el),
-    LOOK.z+DIST*Math.cos(az)*Math.cos(el));
-  camera.lookAt(LOOK);
+    look.x+DIST*Math.sin(az)*Math.cos(el),
+    look.y+DIST*Math.sin(el),
+    look.z+DIST*Math.cos(az)*Math.cos(el));
+  camera.lookAt(look);
 }
+/* responsive: never compress the vertical world to fit horizontally —
+   wide screens reveal lateral environment around the current section */
 function sizeCamera(){
   const aspect=innerWidth/innerHeight;
   let halfH, halfW;
-  if(aspect>=CANON){ halfH=ORTHO_H/2;       halfW=halfH*aspect; }
-  else             { halfW=ORTHO_H*CANON/2; halfH=halfW/aspect; }
+  if(aspect>=CANON){ halfH=cur.h/2;        halfW=halfH*aspect; }
+  else             { halfW=cur.h*CANON/2;  halfH=halfW/aspect; }
   camera.top=halfH; camera.bottom=-halfH; camera.right=halfW; camera.left=-halfW;
   camera.near=1; camera.far=120; camera.updateProjectionMatrix();
 }
-sizeCamera(); placeCamera();
+retarget(); Object.assign(cur,tgt); sizeCamera(); placeCamera();
 
 addEventListener('mousemove',e=>{
   const mx=(e.clientX/innerWidth )*2-1;
   const my=(e.clientY/innerHeight)*2-1;
-  tgt.az=base.az+mx*0.085; tgt.el=base.el-my*0.045;
+  const k=cur.h/FULL_H;                       // gentler parallax when zoomed in
+  tgt.az=base.az+mx*0.085*k; tgt.el=base.el-my*0.045*k;
 });
 addEventListener('mouseout',()=>{tgt.az=base.az; tgt.el=base.el;});
+/* journey progress comes from REAL document scroll — no wheel/zoom binding.
+   deltaX and pinch gestures never touch the camera; the browser owns scrolling. */
+function scrollProgress(){
+  const max=document.documentElement.scrollHeight-innerHeight;
+  return max>0 ? THREE.MathUtils.clamp(scrollY/max,0,1) : 0;
+}
+/* debug: 1-8 scroll the document to a section; F toggles overview */
+addEventListener('keydown',e=>{
+  if(e.key==='f'||e.key==='F'){ fullMode=!fullMode; retarget(); }
+  const n=parseInt(e.key,10);
+  if(n>=1&&n<=WAY.length){
+    fullMode=false;
+    const max=document.documentElement.scrollHeight-innerHeight;
+    window.scrollTo({top:(n-1)/(WAY.length-1)*max, behavior:'smooth'});
+  }
+});
 
 /* ================= post: riso print pass (approved) ================= */
 let rt=null;
@@ -837,9 +943,6 @@ function resize(){
   renderer.setPixelRatio(Math.min(devicePixelRatio,2));
   renderer.setSize(w,h);
   sizeCamera();
-  const ow=Math.min(w, h*CANON);
-  const ov=document.getElementById('overlay');
-  ov.style.width=ow+'px'; ov.style.height=(ow*1.5)+'px';
   const pw=Math.round(w*renderer.getPixelRatio()), ph=Math.round(h*renderer.getPixelRatio());
   if(rt) rt.dispose();
   rt=new THREE.WebGLRenderTarget(pw,ph,{samples:4});
@@ -862,11 +965,25 @@ addEventListener('keydown',e=>{
   if(e.key==='o'||e.key==='O') setOverlay(overlay.style.display==='none');
 });
 
+/* overlay tracks the current crop of the master poster (tracing guide) */
+function updateOverlay(){
+  if(overlay.style.display==='none') return;
+  const vw=innerWidth, vh=innerHeight, aspect=vw/vh;
+  const ppu = aspect>=CANON ? vh/cur.h : vw/(cur.h*CANON);
+  const w=FRUS_W*ppu, h=FRUS_H*ppu;
+  overlay.style.width=w+'px'; overlay.style.height=h+'px';
+  overlay.style.left=(vw/2-cur.sx*ppu-w/2)+'px';
+  overlay.style.top =(vh/2+cur.sy*ppu-h/2)+'px';
+}
+
 /* ================= loop ================= */
 function tick(){
   requestAnimationFrame(tick);
+  if(!fullMode){ tJourney=scrollProgress(); retarget(); }
   cur.az+=(tgt.az-cur.az)*0.055; cur.el+=(tgt.el-cur.el)*0.055;
-  placeCamera();
+  cur.h +=(tgt.h -cur.h )*0.06;
+  cur.sx+=(tgt.sx-cur.sx)*0.06; cur.sy+=(tgt.sy-cur.sy)*0.06;
+  sizeCamera(); placeCamera(); updateOverlay();
   renderer.setRenderTarget(rt);
   renderer.render(scene,camera);
   renderer.setRenderTarget(null);
