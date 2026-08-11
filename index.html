@@ -35,41 +35,67 @@
   #posterLayer{position:fixed;inset:0;z-index:15;pointer-events:none}
   #posterLayer .pl-inner{position:absolute;left:50%;top:50%;
     transform:translate(-50%,-50%);width:min(100vw,66.7vh);aspect-ratio:2/3;}
-  .type-title img, .type-sub img, .type-date img{display:block;width:100%;
+  .type-title img{display:block;width:100%;
     filter:drop-shadow(0 1px 2px rgba(20,25,70,.22))}
-  .type-title, .type-sub, .type-date{position:absolute}
-  .institution{font-family:Georgia,'Times New Roman',serif;color:#f7dcc2;
-    text-transform:uppercase;white-space:nowrap;opacity:.94}
+  .type-title{position:absolute}
   .rule{position:absolute;height:2px;background:#f7dcc2;opacity:.55}
 
-  /* Date zone: verified clear of both the flute-road's bottom-right exit
-     (left edge ~87-89% for py 1000-1053) and the staff ribbon's bottom-left
-     tail (right edge ~50% at py~1046) — all three variants stay right of
-     55% and right-edge at or inside 85% to keep margin from the road. */
+  /* ensemble name: "Sydney University Wind Orchestra" set as one unified
+     typeface (two stacked lines, same weight/tracking throughout) instead
+     of mixing the brush crop with typeset text — it's one ensemble name,
+     it should read as one voice. */
+  .ensemble-block{position:absolute}
+  .ensemble-line{font-family:Georgia,'Times New Roman',serif;color:#f7dcc2;
+    text-transform:uppercase;white-space:nowrap;opacity:.94;line-height:1.32}
+
+  /* ---- event info block: venue + date/time, real typeset text (no brush
+     asset exists for this content, so it must be set, not extracted).
+     Flat plate (no border/shadow, matches the poster's matte print
+     language) keeps it legible over whatever sits behind it. ---- */
+  .type-info{position:absolute;text-align:right;pointer-events:none;
+    background:rgba(30,40,110,.46);border-radius:7px;padding:.6em .85em}
+  .info-group{display:flex;align-items:baseline;justify-content:flex-end;gap:.55em}
+  .info-group + .info-group{margin-top:.42em}
+  .info-dot{width:.5em;height:.5em;min-width:.5em;border-radius:50%;background:#f0a24e}
+  .info-lines{display:flex;flex-direction:column;align-items:flex-end;line-height:1.32}
+  .info-main{font-family:Georgia,'Times New Roman',serif;color:#f7dcc2;
+    text-transform:uppercase;white-space:nowrap;font-weight:700}
+  .info-sub{font-family:Georgia,'Times New Roman',serif;color:#f7dcc2;
+    white-space:nowrap;opacity:.82;font-style:italic;letter-spacing:.02em}
+
+  /* Info-block zone: right edge held to 84-85% (verified clear of the
+     flute-road's bottom-right exit, whose left edge runs ~85-89% across
+     py 935-1053) and anchored from the bottom so a taller 2-group block
+     grows upward without reaching the right-city fringe (ends ~py850,
+     i.e. ~78%). All three variants stay inside that margin. */
 
   /* ---- Variant A: editorial asymmetric — conservative, generous margins ---- */
-  [data-variant="A"] .type-title{left:2.5%;top:3.0%;width:34%}
-  [data-variant="A"] .institution{left:2.8%;top:15.6%;font-size:clamp(8px,1.05vw,13px);
-    letter-spacing:.32em}
-  [data-variant="A"] .type-sub{left:2.8%;top:18.6%;width:26%}
-  [data-variant="A"] .type-date{right:15%;top:92.5%;width:26%}
+  [data-variant="A"] .type-title{left:2.5%;top:3.0%;width:36%}
+  [data-variant="A"] .ensemble-block{left:2.8%;top:15.3%}
+  [data-variant="A"] .ensemble-line{font-size:clamp(9px,1.05vw,13px);letter-spacing:.12em}
+  [data-variant="A"] .type-info{right:16%;bottom:5.5%}
+  [data-variant="A"] .info-main{font-size:clamp(9px,1.05vw,13px);letter-spacing:.09em}
+  [data-variant="A"] .info-sub{font-size:clamp(7.5px,0.85vw,10.5px)}
   [data-variant="A"] .rule{display:none}
 
   /* ---- Variant B: original-poster inspired — tighter rhythm, slightly larger ---- */
-  [data-variant="B"] .type-title{left:2.2%;top:2.2%;width:37%}
-  [data-variant="B"] .institution{left:2.5%;top:14.6%;font-size:clamp(8px,1.05vw,13px);
-    letter-spacing:.28em}
-  [data-variant="B"] .type-sub{left:2.5%;top:17.3%;width:28%}
-  [data-variant="B"] .type-date{right:15%;top:93.6%;width:24%}
+  [data-variant="B"] .type-title{left:2.2%;top:2.2%;width:38%}
+  [data-variant="B"] .ensemble-block{left:2.5%;top:14.6%}
+  [data-variant="B"] .ensemble-line{font-size:clamp(9.5px,1.1vw,13.5px);letter-spacing:.10em}
+  [data-variant="B"] .type-info{right:16%;bottom:4.5%}
+  [data-variant="B"] .info-main{font-size:clamp(9.5px,1.1vw,13.5px);letter-spacing:.07em}
+  [data-variant="B"] .info-sub{font-size:clamp(8px,0.9vw,11px)}
   [data-variant="B"] .rule{display:none}
 
-  /* ---- Variant C: experimental — corner-hugging title + rule, airier date ---- */
-  [data-variant="C"] .type-title{left:1.8%;top:1.8%;width:36%}
+  /* ---- Variant C: experimental — corner-hugging title + rule, airier info block ---- */
+  [data-variant="C"] .type-title{left:1.8%;top:1.8%;width:37%}
   [data-variant="C"] .rule{left:2.0%;top:14.0%;width:32%}
-  [data-variant="C"] .institution{left:2.0%;top:15.6%;font-size:clamp(8px,1.1vw,14px);
-    letter-spacing:.36em}
-  [data-variant="C"] .type-sub{left:2.0%;top:18.6%;width:25%}
-  [data-variant="C"] .type-date{right:15%;top:91.2%;width:28%}
+  [data-variant="C"] .ensemble-block{left:2.0%;top:15.6%}
+  [data-variant="C"] .ensemble-line{font-size:clamp(10px,1.2vw,15px);letter-spacing:.14em}
+  [data-variant="C"] .type-info{right:16%;bottom:7.5%}
+  [data-variant="C"] .info-main{font-size:clamp(9.5px,1.15vw,14px);letter-spacing:.1em}
+  [data-variant="C"] .info-sub{font-size:clamp(8px,0.95vw,11.5px)}
+  [data-variant="C"] .info-group + .info-group{margin-top:.6em}
 
   /* ---- variant switcher (dev tool for this review round) ---- */
   #varSwitch{position:fixed;top:12px;left:12px;display:flex;gap:6px;z-index:30;
@@ -86,9 +112,26 @@
 <div id="posterLayer" data-variant="A"><div class="pl-inner" id="plInner">
   <div class="type-title"><img src="title.png" alt="Fantastic World"></div>
   <div class="rule"></div>
-  <div class="institution">Sydney University</div>
-  <div class="type-sub"><img src="subtitle.png" alt="Wind Orchestra"></div>
-  <div class="type-date"><img src="date.png" alt="31 Oct 2026 · 7:00 PM"></div>
+  <div class="ensemble-block">
+    <div class="ensemble-line">Sydney University</div>
+    <div class="ensemble-line">Wind Orchestra</div>
+  </div>
+  <div class="type-info">
+    <div class="info-group">
+      <span class="info-dot"></span>
+      <div class="info-lines">
+        <div class="info-main">Verbrugghen Hall</div>
+        <div class="info-sub">Sydney Conservatorium of Music</div>
+      </div>
+    </div>
+    <div class="info-group">
+      <span class="info-dot"></span>
+      <div class="info-lines">
+        <div class="info-main">Saturday 31 October 2026</div>
+        <div class="info-sub">7:00 PM</div>
+      </div>
+    </div>
+  </div>
 </div></div>
 <div id="varSwitch">
   <button data-v="A" class="on">A</button>
