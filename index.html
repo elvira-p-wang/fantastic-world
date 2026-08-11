@@ -204,6 +204,12 @@ function mountain(w,h,bumps,seed){
 }
 
 const world = new THREE.Group(); scene.add(world);
+/* swept tube along a spline — instrument tubing workhorse */
+function tubeAlong(pts,r,m,closed=false,seg=64){
+  const c=new THREE.CatmullRomCurve3(pts,closed,'centripetal',0.5);
+  const t=new THREE.Mesh(new THREE.TubeGeometry(c,seg,r,10,closed),m);
+  world.add(t); return t;
+}
 function put(geo,m,x,y,z,ry=0,rz=0,parent=world){
   const msh=new THREE.Mesh(geo,m); msh.position.set(x,y,z);
   msh.rotation.y=ry; msh.rotation.z=rz; parent.add(msh); return msh;
@@ -310,13 +316,14 @@ function buildRibbon(pts, wStart, wEnd, powr, colors){
       uBase:{value:C(colors.base)}, uDeep:{value:C(colors.deep)},
       uStaff:{value:C('#7ea6cf')}, uStaffOn:{value:colors.staff?1.0:0.0},
       uEdgeCol:{value:C(P.cream)}, uEdgeOn:{value:colors.edge?1.0:0.0},
+      uTubeOn:{value:colors.tube?1.0:0.0},
     },
     vertexShader:/* glsl */`
       varying vec2 vUv;
       void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
     fragmentShader:/* glsl */`
       varying vec2 vUv;
-      uniform vec3 uBase,uDeep,uStaff,uEdgeCol; uniform float uStaffOn,uEdgeOn;
+      uniform vec3 uBase,uDeep,uStaff,uEdgeCol; uniform float uStaffOn,uEdgeOn,uTubeOn;
       ${NOISE}
       void main(){
         float u=vUv.x, v=vUv.y;
@@ -334,6 +341,12 @@ function buildRibbon(pts, wStart, wEnd, powr, colors){
         float streak=fbm(vec2(v*0.85,u*7.0));
         col=mix(col,uDeep,smoothstep(0.55,0.9,streak)*0.55);
         col*=1.0+(fbm(vec2(v*3.1,u*11.0))-0.5)*0.10;
+        /* subtle cylindrical body shading — the road is secretly a flute tube */
+        if(uTubeOn>0.5){
+          float c=abs(u-0.5)*2.0;
+          col=mix(col,uDeep,c*c*0.40);
+          col=mix(col,vec3(1.0),smoothstep(0.25,0.0,abs(u-0.34))*0.06);
+        }
         /* cream dry-brush edging (flute road treatment) */
         if(uEdgeOn>0.5){
           float band=1.0-smoothstep(rag+0.02,rag+0.11,e);
@@ -392,25 +405,58 @@ function buildRibbon(pts, wStart, wEnd, powr, colors){
   const swash=put(blobShape(3.4,2.7,3.3,0.24),
     mat(P.mauveLight,P.mauveLight,P.mauveLight,{depth:0.25,mottle:0.06}),0,0,0);
   swash.position.copy(posterAt(150,545,-8));
-  /* triple coil — poster (30-245, 385-635) */
-  const c1=new THREE.Mesh(new THREE.TorusGeometry(2.05,0.56,16,52),gold);
-  c1.position.copy(bodyP); world.add(c1);
-  const c2=new THREE.Mesh(new THREE.TorusGeometry(1.38,0.40,14,44),gold);
-  c2.position.set(bodyP.x+0.22,bodyP.y-0.14,bodyP.z-0.32); world.add(c2);
-  const c3=new THREE.Mesh(new THREE.TorusGeometry(0.78,0.27,12,36),gold);
-  c3.position.set(bodyP.x-0.12,bodyP.y+0.10,bodyP.z+0.26); world.add(c3);
-  /* neck riser + big bell opening upward — poster (50-210, 285-435) */
+  /* --- stylised horn: wound spiral coil, lead pipe, rotary valves, upward bell ---
+     spirals drift in radius and depth so the coil feels designed, not mathematical */
+  const spiral=(a0,sweep,r0,r1,z0,z1,ox=0,oy=0)=>{
+    const pts=[]; const N=48;
+    for(let i=0;i<=N;i++){const t=i/N, a=a0+sweep*t;
+      pts.push(new THREE.Vector3(
+        bodyP.x+ox+Math.cos(a)*(r0+(r1-r0)*t),
+        bodyP.y+oy+Math.sin(a)*(r0+(r1-r0)*t),
+        bodyP.z+z0+(z1-z0)*t));}
+    return pts;
+  };
+  /* main wound coil — 1.35 turns */
+  tubeAlong(spiral(-1.9, Math.PI*2*1.35, 2.15, 1.78, -0.26, 0.30), 0.33, gold, false, 96);
+  /* inner loop, off-centre */
+  tubeAlong(spiral(0.6, Math.PI*2*0.85, 1.22, 1.00, 0.24, 0.05, 0.25, -0.18), 0.22, gold, false, 64);
+  /* lead pipe sweeping in from the right, under the coil */
+  tubeAlong([
+    new THREE.Vector3(bodyP.x+3.15,bodyP.y-1.05,bodyP.z+0.5),
+    new THREE.Vector3(bodyP.x+2.1, bodyP.y-1.75,bodyP.z+0.42),
+    new THREE.Vector3(bodyP.x+0.9, bodyP.y-2.1, bodyP.z+0.3),
+    new THREE.Vector3(bodyP.x-0.70,bodyP.y-2.03,bodyP.z-0.26),
+  ],0.13,gold,false,48);
+  /* riser tube to the bell */
+  tubeAlong([
+    new THREE.Vector3(bodyP.x-1.35,bodyP.y+1.55,bodyP.z+0.10),
+    new THREE.Vector3(bodyP.x-0.95,bodyP.y+2.60,bodyP.z+0.05),
+    new THREE.Vector3(bodyP.x-0.62,bodyP.y+3.30,bodyP.z),
+  ],0.27,gold,false,32);
+  /* big bell opening upward — poster (50-210, 285-435) */
   const bellP=posterAt(128,326,0.8);
-  const neck=new THREE.Mesh(new THREE.CylinderGeometry(0.30,0.36,1.6,14),gold);
-  neck.position.set(bodyP.x-0.5,bodyP.y+2.35,bodyP.z); neck.rotation.z=0.10; world.add(neck);
   const prof=[]; for(let i=0;i<=12;i++){const t=i/12;
     prof.push(new THREE.Vector2(0.36+1.55*t*t*t, t*2.9));}
   const bell=new THREE.Mesh(new THREE.LatheGeometry(prof,28),gold);
   bell.position.set(bellP.x,bellP.y-1.45,bellP.z); bell.rotation.z=0.16; world.add(bell);
-  /* valve block */
+  /* rotary valve cluster: three rotors + levers + connecting stubs */
   for(let i=0;i<3;i++){
-    const v=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.13,1.05,10),gold);
-    v.position.set(bodyP.x+1.15+i*0.34,bodyP.y+0.72,bodyP.z+0.4); world.add(v);
+    const vx=bodyP.x+0.30+i*0.44, vy=bodyP.y+0.05-i*0.10;
+    const rotor=new THREE.Mesh(new THREE.CylinderGeometry(0.21,0.21,0.55,14),gold);
+    rotor.rotation.x=Math.PI/2; rotor.position.set(vx,vy,bodyP.z+0.42); world.add(rotor);
+    const lever=new THREE.Mesh(new THREE.BoxGeometry(0.055,0.5,0.055),gold);
+    lever.position.set(vx+0.10,vy+0.48,bodyP.z+0.55); lever.rotation.z=-0.35+i*0.12; world.add(lever);
+  }
+  for(let i=0;i<2;i++){
+    const stub=new THREE.Mesh(new THREE.TorusGeometry(0.30,0.085,8,18,Math.PI),gold);
+    stub.position.set(bodyP.x+0.52+i*0.44,bodyP.y-0.42,bodyP.z+0.40);
+    stub.rotation.z=Math.PI; world.add(stub);
+  }
+  /* tubing braces */
+  for(const [aAng,len] of [[2.6,0.9],[5.5,0.8]]){
+    const br=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,len,8),gold);
+    br.position.set(bodyP.x+Math.cos(aAng)*1.5,bodyP.y+Math.sin(aAng)*1.5,bodyP.z+0.05);
+    br.rotation.z=aAng; world.add(br);
   }
 
   /* miniature city embedded in / spilling out of the coil (base-anchored) */
@@ -509,52 +555,119 @@ function buildRibbon(pts, wStart, wEnd, powr, colors){
 
 /* ---------- ZONE 4: woodwind skyline ----------
    Navy columns with flare + yellow key dots, growing out of the core. */
-function woodwind(pxTop,pyTop,pyBot,z,r){
-  const top=posterAt(pxTop,pyTop,z), bot=posterAt(pxTop,pyBot,z);
+/* clarinet: regular cylinder, barrel-joint rings, lower bell flare,
+   sparse elegant keys on one axis with a single rod */
+function clarinetTower(px,pyTop,pyBot,z,r){
+  const top=posterAt(px,pyTop,z), bot=posterAt(px,pyBot,z);
   const h=top.y-bot.y;
-  const g=new THREE.Group(); g.position.set(bot.x,bot.y,bot.z); world.add(g);
+  const g=new THREE.Group(); g.position.copy(bot); world.add(g);
   const nv=M.navyF();
-  const col=new THREE.Mesh(new THREE.CylinderGeometry(r*0.82,r,h,14),nv);
-  col.position.y=h/2; g.add(col);
-  const flare=new THREE.Mesh(new THREE.CylinderGeometry(r*1.9,r*0.82,r*2.6,14),nv);
-  flare.position.y=h+r*1.3; g.add(flare);
-  const tip=new THREE.Mesh(new THREE.CylinderGeometry(r*0.5,r*0.6,r*1.1,10),nv);
-  tip.position.y=h+r*3.0; g.add(tip);
-  for(let i=0;i<6;i++){
-    const k=new THREE.Mesh(new THREE.CircleGeometry(r*0.26,10),M.yellow());
-    k.position.set(r*0.25*Math.sin(i*2.4), h*(0.18+0.115*i), r+EPS); g.add(k);
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(r,r*1.02,h*0.78,14),nv);
+  body.position.y=h*0.56; g.add(body);
+  const bellC=new THREE.Mesh(new THREE.CylinderGeometry(r*1.02,r*1.75,h*0.17,14),nv);
+  bellC.position.y=h*0.085; g.add(bellC);
+  for(const f of [0.42,0.68]){
+    const ring=new THREE.Mesh(new THREE.CylinderGeometry(r*1.14,r*1.14,0.09,14),M.creamF());
+    ring.position.y=h*f; g.add(ring);
+  }
+  const barrel=new THREE.Mesh(new THREE.CylinderGeometry(r*0.9,r*1.05,h*0.06,12),nv);
+  barrel.position.y=h*0.975; g.add(barrel);
+  const beak=new THREE.Mesh(new THREE.ConeGeometry(r*0.78,r*3.2,12),nv);
+  beak.position.y=h+r*1.5; beak.rotation.z=0.06; g.add(beak);
+  const rod=new THREE.Mesh(new THREE.CylinderGeometry(0.028,0.028,h*0.5,6),M.creamF());
+  rod.position.set(r*0.7,h*0.52,r*0.55); g.add(rod);
+  for(let i=0;i<5;i++){
+    const cup=new THREE.Mesh(new THREE.CircleGeometry(r*0.30,12),M.yellow());
+    cup.position.set(r*0.18,h*(0.30+0.10*i),r+EPS); g.add(cup);
   }
   return g;
 }
-/* four slender needles at staggered heights — impossible minarets */
-woodwind(345,175,500,-4.0,0.30);   // left clarinet
-woodwind(492,138,470,-5.5,0.33);   // right clarinet (tallest)
-woodwind(395,235,480,-4.8,0.20);   // oboe
-woodwind(300,262,462,-3.2,0.155);  // piccolo spire
+/* oboe: tapered delicate body, narrow bell, needle reed staple,
+   clustered staggered keywork with double rods — ornate rhythm */
+function oboeTower(px,pyTop,pyBot,z,r){
+  const top=posterAt(px,pyTop,z), bot=posterAt(px,pyBot,z);
+  const h=top.y-bot.y;
+  const g=new THREE.Group(); g.position.copy(bot); world.add(g);
+  const nv=M.navyF();
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(r*0.55,r*1.0,h*0.86,14),nv);
+  body.position.y=h*0.52; g.add(body);
+  const bellC=new THREE.Mesh(new THREE.CylinderGeometry(r*1.0,r*1.3,h*0.09,12),nv);
+  bellC.position.y=h*0.045; g.add(bellC);
+  const staple=new THREE.Mesh(new THREE.CylinderGeometry(r*0.10,r*0.16,r*4.2,8),nv);
+  staple.position.y=h+r*2.0; g.add(staple);
+  const wrap=new THREE.Mesh(new THREE.CylinderGeometry(r*0.24,r*0.24,r*0.5,8),M.creamF());
+  wrap.position.y=h+r*0.35; g.add(wrap);
+  for(const f of [0.30,0.74]){
+    const ring=new THREE.Mesh(new THREE.CylinderGeometry(r*0.95,r*0.95,0.06,12),M.creamF());
+    ring.position.y=h*f; g.add(ring);
+  }
+  for(const s of [-1,1]){
+    const rod=new THREE.Mesh(new THREE.CylinderGeometry(0.02,0.02,h*0.55,6),M.creamF());
+    rod.position.set(s*r*0.55,h*0.5,r*0.5); g.add(rod);
+  }
+  const groups=[[0.22,3],[0.48,2],[0.66,3],[0.84,2]];
+  for(const [f,n] of groups) for(let i=0;i<n;i++){
+    const cup=new THREE.Mesh(new THREE.CircleGeometry(r*0.22,10),M.yellow());
+    cup.position.set(((i%2)?1:-1)*r*0.22, h*(f+i*0.035), r*0.75+EPS); g.add(cup);
+    if(i===0){
+      const arm=new THREE.Mesh(new THREE.BoxGeometry(0.035,0.16,0.035),M.creamF());
+      arm.position.set(-r*0.4, h*(f+0.02), r*0.6); arm.rotation.z=0.8; g.add(arm);
+    }
+  }
+  return g;
+}
+/* staggered heights — impossible minarets, but namable instruments */
+clarinetTower(345,175,500,-4.0,0.30);   // left clarinet
+clarinetTower(492,138,470,-5.5,0.33);   // right clarinet (tallest)
+oboeTower(395,235,480,-4.8,0.21);       // oboe
+oboeTower(300,262,462,-3.2,0.16);       // small oboe / piccolo spire
 
 /* ---------- ZONE 5: trombone bridge ----------
    Golden diagonal architectural gesture across the centre. */
 {
-  /* two-segment gesture with an elbow — bridges the central and right masses */
+  /* stylised trombone bridge: inner+outer slide with sleeve step, U-bow,
+     H-braces, bell tube making its U-turn at the near end */
   const gold=M.yellow();
   const a=posterAt(298,562,0.5), m=posterAt(432,514,0.45), b=posterAt(534,474,0.4);
-  const seg=(p,q)=>{
+  const dirAB=b.clone().sub(a).normalize();
+  const seg=(p,q,r)=>{
     const dir=q.clone().sub(p), len=dir.length(), mid=p.clone().addScaledVector(dir,0.5);
     const g=new THREE.Group(); g.position.copy(mid); world.add(g);
     g.lookAt(q); g.rotateY(Math.PI/2);
     for(const off of [-0.17,0.17]){
-      const t=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,len,12),gold);
+      const t=new THREE.Mesh(new THREE.CylinderGeometry(r,r,len,12),gold);
       t.rotation.z=Math.PI/2; t.position.y=off; g.add(t);
     }
   };
-  seg(a,m); seg(m,b);
-  const bend=new THREE.Mesh(new THREE.TorusGeometry(0.17,0.12,10,16,Math.PI),gold);
-  bend.position.copy(b); bend.rotation.z=-Math.PI/2; bend.rotation.y=0.3; world.add(bend);
-  /* bell flaring down-left out of the central city */
+  seg(a,m,0.105);          // inner slide (thinner)
+  seg(m,b,0.14);           // outer slide (the sleeve step reads at a glance)
+  /* U-bow closing the far end */
+  const bow=new THREE.Group(); bow.position.copy(b); world.add(bow);
+  bow.lookAt(b.clone().add(dirAB)); bow.rotateY(Math.PI/2);
+  const bowT=new THREE.Mesh(new THREE.TorusGeometry(0.17,0.135,10,18,Math.PI),gold);
+  bowT.rotation.z=-Math.PI/2; bow.add(bowT);
+  /* slide braces — the trombone 'H' */
+  const brace=t=>{
+    const g=new THREE.Group(); g.position.copy(a.clone().lerp(b,t)); world.add(g);
+    g.lookAt(b); g.rotateY(Math.PI/2);
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.46,8),gold));
+  };
+  brace(0.06); brace(0.42);
+  /* bell tube: runs above the slide, U-turns at the near end */
+  const up=new THREE.Vector3(0,0.42,0);
+  tubeAlong([
+    a.clone().lerp(b,0.30).add(up),
+    a.clone().lerp(b,0.10).add(up),
+    a.clone().add(new THREE.Vector3(-0.30,0.36,0)),
+    a.clone().add(new THREE.Vector3(-0.42,0.05,0)),
+  ],0.10,gold,false,40);
+  /* bell flaring down-left, aligned with the gesture */
   const prof=[]; for(let i=0;i<=10;i++){const t=i/10;
-    prof.push(new THREE.Vector2(0.14+0.62*t*t*t, t*1.25));}
+    prof.push(new THREE.Vector2(0.13+0.72*t*t*t, t*1.5));}
   const bl=new THREE.Mesh(new THREE.LatheGeometry(prof,22),gold);
-  bl.position.copy(a); bl.rotation.z=Math.PI/2+0.35; world.add(bl);
+  bl.position.copy(a).add(new THREE.Vector3(-0.40,0.02,0));
+  bl.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dirAB.clone().negate());
+  world.add(bl);
   /* slender impossible pier under the elbow */
   const pier=new THREE.Mesh(archedWall(0.6,2.3,0.5,[{x:0,w:0.34,h:1.5}]),M.cream());
   pier.position.set(m.x,m.y-2.3,m.z); world.add(pier);
@@ -697,12 +810,77 @@ const cityRight=new THREE.Group(); world.add(cityRight);
 /* ---------- ZONE 7: flute-key road (azure, cream-edged) ---------- */
 {
   /* originates deep inside the right city, tight serpentine weave */
-  const path=[ // [px,py,z] top -> bottom
+  const raw=[ // [px,py,z] top -> bottom
     [560,552,-4.0],[604,608,-2.8],[556,662,-1.6],[610,718,-0.4],
     [568,778, 0.8],[608,846, 2.0],[652,938, 3.0],[686,1040,3.8],
     [716,1140,4.4],
   ].map(a=>posterAt(a[0],a[1],a[2]));
-  buildRibbon(path, 0.6, 1.7, 1.2, {base:P.azure, deep:P.azureDeep, edge:true});
+  buildRibbon(raw, 0.6, 1.7, 1.2, {base:P.azure, deep:P.azureDeep, edge:true, tube:true});
+
+  /* flute mechanics as street furniture: tone holes, key cups, arms, one long
+     rod, an embouchure plate hidden at the head. Quiet on purpose — it must
+     read as a road first and a flute second. */
+  const fc=new THREE.CatmullRomCurve3(raw,false,'centripetal',0.5);
+  const upv=new THREE.Vector3(0,1,0);
+  const frame=t=>{
+    const p=fc.getPoint(t), tan=fc.getTangent(t);
+    const bin=new THREE.Vector3().crossVectors(upv,tan).normalize();
+    return {p,tan,bin};
+  };
+  /* continuous key rod running beside the centreline */
+  const rodPts=[]; for(let i=0;i<=40;i++){
+    const f=frame(0.16+(0.86-0.16)*i/40);
+    rodPts.push(f.p.clone().addScaledVector(f.bin,0.42).add(new THREE.Vector3(0,0.055,0)));
+  }
+  tubeAlong(rodPts,0.032,M.creamF(),false,80);
+  /* tone holes (open rings) and key cups (closed discs), flute-like grouping */
+  const pattern=[0.18,0.235,0.29, 0.37,0.425,0.48, 0.56,0.615, 0.70,0.755,0.81];
+  const azd=mat(P.azureDeep,P.azureDeep,P.azureDeep);
+  pattern.forEach((t,i)=>{
+    const f=frame(t), open=(i%3===1);
+    if(open){
+      const ring=new THREE.Mesh(new THREE.RingGeometry(0.115,0.185,18),M.creamF());
+      ring.rotation.x=-Math.PI/2; ring.position.copy(f.p).add(new THREE.Vector3(0,0.03,0)); world.add(ring);
+    }else{
+      const cup=new THREE.Mesh(new THREE.CircleGeometry(0.16,16),M.creamF());
+      cup.rotation.x=-Math.PI/2; cup.position.copy(f.p).add(new THREE.Vector3(0,0.03,0)); world.add(cup);
+      const dot=new THREE.Mesh(new THREE.CircleGeometry(0.045,10),azd);
+      dot.rotation.x=-Math.PI/2; dot.position.copy(f.p).add(new THREE.Vector3(0,0.045,0)); world.add(dot);
+      if(i%2===0){ /* key arm linking cup to the rod */
+        const arm=new THREE.Mesh(new THREE.BoxGeometry(0.42,0.028,0.05),M.creamF());
+        arm.position.copy(f.p).addScaledVector(f.bin,0.21).add(new THREE.Vector3(0,0.05,0));
+        arm.rotation.y=Math.atan2(-f.bin.z,f.bin.x);
+        world.add(arm);
+      }
+    }
+  });
+  /* small trill keys hugging the rod */
+  for(const t of [0.33,0.52,0.67]){
+    const f=frame(t);
+    const k=new THREE.Mesh(new THREE.CircleGeometry(0.075,10),M.creamF());
+    k.rotation.x=-Math.PI/2;
+    k.position.copy(f.p).addScaledVector(f.bin,0.42).add(new THREE.Vector3(0,0.06,0));
+    world.add(k);
+  }
+  /* embouchure lip plate at the hidden head end — the reveal */
+  {
+    const f=frame(0.035);
+    const plate=new THREE.Mesh(new THREE.CylinderGeometry(0.30,0.30,0.07,18),M.creamF());
+    plate.scale.set(1.7,1,1.0);
+    plate.position.copy(f.p).add(new THREE.Vector3(0,0.05,0));
+    plate.rotation.y=Math.atan2(-f.tan.z,f.tan.x); world.add(plate);
+    const hole=new THREE.Mesh(new THREE.CircleGeometry(0.10,14),M.navyF());
+    hole.rotation.x=-Math.PI/2; hole.scale.x=1.5;
+    hole.position.copy(f.p).add(new THREE.Vector3(0,0.095,0)); world.add(hole);
+  }
+  /* foot-joint key cluster at the viewer end */
+  for(const [t,r,off] of [[0.90,0.15,0.20],[0.925,0.12,-0.18],[0.955,0.17,0.15]]){
+    const f=frame(t);
+    const cup=new THREE.Mesh(new THREE.CircleGeometry(r,14),M.creamF());
+    cup.rotation.x=-Math.PI/2;
+    cup.position.copy(f.p).addScaledVector(f.bin,off).add(new THREE.Vector3(0,0.03,0));
+    world.add(cup);
+  }
 }
 
 /* ---------- ZONE 8: percussion terrace (upper right) ----------
