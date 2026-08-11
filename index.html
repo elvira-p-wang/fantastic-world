@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fantastic World — Composition Greybox</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#2f3f9d;overflow:hidden;
+    font-family:ui-monospace,Menlo,monospace}
+  canvas{position:fixed;inset:0;display:block}
+  /* overlay = canonical portrait composition-safe area, centred; sized by JS */
+  #overlay{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    pointer-events:none;opacity:.5;display:none;z-index:5}
+  #ui{position:fixed;top:12px;right:12px;display:flex;gap:8px;align-items:center;
+    background:rgba(20,25,70,.72);border:1px solid rgba(247,220,194,.25);
+    border-radius:8px;padding:8px 10px;color:#f7dcc2;font-size:11px;z-index:10}
+  #ui button{background:none;border:1px solid rgba(247,220,194,.45);color:#f7dcc2;
+    border-radius:5px;padding:3px 8px;font:inherit;cursor:pointer}
+  #ui button.on{background:#f7dcc2;color:#2f3f9d}
+  #ui input[type=range]{width:80px;accent-color:#f7dcc2}
+  #hint{position:fixed;bottom:10px;right:14px;color:rgba(247,220,194,.45);
+    font-size:10px;z-index:10}
+</style>
+</head>
+<body>
+<img id="overlay" src="poster.png" alt="">
+<div id="ui">
+  <button id="btnOverlay">poster&nbsp;[O]</button>
+  <input id="opacity" type="range" min="0" max="100" value="50">
+</div>
+<div id="hint">move mouse for parallax</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ================= palette (sampled from poster) ================= */
+const P = {
+  bg:'#2f3f9d', bgDeep:'#27338a', navy:'#29368e',
+  azure:'#4c91d8', azureDeep:'#3d7ec6', azureTop:'#5da0e0',
+  cream:'#f7dcc2', creamDeep:'#eecb9f',
+  salmon:'#f99d8b', salmonDeep:'#e07f6e', salmonTop:'#fbafa0',
+  blush:'#f5a9a4', blushDeep:'#df8b8a',
+  mint:'#7ccdc3', mintDeep:'#4fb0a6', mintTop:'#93d9d0',
+  jade:'#45b3a5',
+  lilac:'#b689cf', lilacDeep:'#9a6cbd', lilacTop:'#c69ada',
+  peach:'#f9d8bd', peachDeep:'#edc49c', peachTop:'#fbe4d0',
+  yellow:'#f5c266', yellowDeep:'#e3a24a', yellowTop:'#f9d184',
+  coral:'#f08160',
+  mauve:'#8464b4', mauveLight:'#9d79c9', mauvePale:'#b493d6',
+  cardA:'#7a68b8', cardB:'#6957a8',
+  sun:'#fbc25e', pinkSun:'#ec7f93',
+};
+THREE.ColorManagement.enabled = false;           // exact-hex pipeline, no conversions
+const C = h => new THREE.Color(h);
+
+/* ============ camera constants (hoisted: scene placement needs them) ============ */
+const CANON = 2/3;                                // canonical poster aspect
+const LOOK = new THREE.Vector3(0.2,4.6,0.4);
+const DIST = 46, ORTHO_H = 21.5;
+const base = {az:0.30, el:0.175};
+const FRUS_W = ORTHO_H*CANON, FRUS_H = ORTHO_H;
+const cosAz=Math.cos(base.az), sinAz=Math.sin(base.az);
+const cosEl=Math.cos(base.el), sinEl=Math.sin(base.el);
+
+/* posterAt: poster pixel (724x1086) -> world position at chosen depth z,
+   inverse-projected through the canonical home camera. The whole composition
+   is authored in poster coordinates so the macro layout derives from the artwork. */
+function posterAt(px,py,z){
+  const sx=(px/724-0.5)*FRUS_W, sy=(0.5-py/1086)*FRUS_H;
+  return new THREE.Vector3(
+    LOOK.x + (sx + sinAz*(z-LOOK.z))/cosAz,
+    LOOK.y + (sy + sinEl*(z-LOOK.z))/cosEl,
+    z);
+}
+const PX = FRUS_W/724;                            // 1 poster pixel in world units
+
+/* ================= renderer ================= */
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.toneMapping = THREE.NoToneMapping;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = C(P.bg);
+
+/* ================= shared GLSL ================= */
+const NOISE = /* glsl */`
+  float hash(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+  float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+    float a=hash(i),b=hash(i+vec2(1,0)),c=hash(i+vec2(0,1)),d=hash(i+vec2(1,1));
+    return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);}
+  float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*vnoise(p);p*=2.03;a*=.5;}return v;}
+`;
+
+/* ============ flat two-tone "screen print" material (approved lookdev) ============ */
+const DEPTH_TINT = C('#5c55ae');
+function flatMat(front, side, top, opts = {}) {
+  side = side || front; top = top || front;
+  return new THREE.ShaderMaterial({
+    uniforms:{
+      uFront:{value:C(front)}, uSide:{value:C(side)}, uTop:{value:C(top)},
+      uSideDir:{value:new THREE.Vector3(1,0,-0.18).normalize()},
+      uDepthCol:{value:DEPTH_TINT},
+      uDepthAmt:{value:opts.depth ?? 0.0},
+      uMottle:{value:opts.mottle ?? 0.05},
+    },
+    side: opts.doubleSide ? THREE.DoubleSide : THREE.FrontSide,
+    vertexShader:/* glsl */`
+      varying vec3 vN; varying vec3 vW; varying float vZ;
+      void main(){
+        vN = normalize(mat3(modelMatrix) * normal);
+        vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz;
+        vec4 mv = viewMatrix * w; vZ = -mv.z;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader:/* glsl */`
+      varying vec3 vN; varying vec3 vW; varying float vZ;
+      uniform vec3 uFront,uSide,uTop,uSideDir,uDepthCol;
+      uniform float uDepthAmt,uMottle;
+      ${NOISE}
+      void main(){
+        vec3 n = normalize(vN);
+        float topW  = smoothstep(0.55,0.68,n.y);
+        float sideW = smoothstep(0.22,0.34,dot(n,uSideDir))*(1.0-topW);
+        vec3 col = mix(uFront,uSide,sideW); col = mix(col,uTop,topW);
+        col *= 1.0 + (fbm(vW.xy*0.5 + vW.zx*0.31) - 0.5)*uMottle;
+        float dz = clamp((vZ-34.0)/26.0, 0.0, 1.0);
+        col = mix(col, uDepthCol, dz*uDepthAmt);
+        gl_FragColor = vec4(col,1.0);
+      }`
+  });
+}
+/* material cache so colour combos are shared */
+const _mc={};
+function mat(f,s,t,opts){ const k=f+'|'+s+'|'+t+'|'+JSON.stringify(opts||{});
+  return _mc[k] ?? (_mc[k]=flatMat(f,s,t,opts)); }
+
+/* palette combos for architecture (hand-picked pairs, poster-derived) */
+const M = {
+  azure : ()=>mat(P.azure,P.azureDeep,P.azureTop),
+  salmon: ()=>mat(P.salmon,P.salmonDeep,P.salmonTop),
+  blush : ()=>mat(P.blush,P.blushDeep,'#f8bcb6'),
+  mint  : ()=>mat(P.mint,P.mintDeep,P.mintTop),
+  jade  : ()=>mat(P.jade,'#379a8d','#55c2b4'),
+  lilac : ()=>mat(P.lilac,P.lilacDeep,P.lilacTop),
+  peach : ()=>mat(P.peach,P.peachDeep,P.peachTop),
+  yellow: ()=>mat(P.yellow,P.yellowDeep,P.yellowTop),
+  coral : ()=>mat(P.coral,'#d96a4d','#f49577'),
+  cream : ()=>mat(P.cream,P.creamDeep,'#fae6d2'),
+  navyF : ()=>mat(P.navy,P.navy,P.navy),
+  creamF: ()=>mat(P.cream,P.cream,P.cream),
+  pink  : ()=>mat(P.pinkSun,'#d96a80','#f09aa8'),
+};
+const EPS=0.012;
+
+/* ================= geometry helpers (approved) ================= */
+function archShape(w,h){
+  const s=new THREE.Shape(), r=w/2;
+  s.moveTo(-r,0); s.lineTo(-r,h-r); s.absarc(0,h-r,r,Math.PI,0,true); s.lineTo(r,0); s.closePath();
+  return s;
+}
+function archedWall(w,h,d,arches){
+  const s=new THREE.Shape();
+  s.moveTo(-w/2,0); s.lineTo(-w/2,h); s.lineTo(w/2,h); s.lineTo(w/2,0); s.closePath();
+  for(const a of arches){
+    const p=new THREE.Path(), r=a.w/2, cx=a.x;
+    p.moveTo(cx-r,0); p.lineTo(cx-r,a.h-r); p.absarc(cx,a.h-r,r,Math.PI,0,true); p.lineTo(cx+r,0); p.closePath();
+    s.holes.push(p);
+  }
+  const g=new THREE.ExtrudeGeometry(s,{depth:d,bevelEnabled:false});
+  g.translate(0,0,-d/2);
+  return g;
+}
+function archPlane(w,h){ return new THREE.ShapeGeometry(archShape(w,h)); }
+function archTrim(w,h,t){
+  const outer=archShape(w+2*t,h+t);
+  const innerPts=archShape(w,h).getPoints(24);
+  const hole=new THREE.Path(); hole.setFromPoints(innerPts); hole.closePath();
+  outer.holes.push(hole);
+  return new THREE.ShapeGeometry(outer);
+}
+function blobShape(rx,rz,seed,irr=0.3){
+  const s=new THREE.Shape(); const N=14;
+  for(let i=0;i<=N;i++){
+    const a=i/N*Math.PI*2;
+    const j=1+irr*(Math.sin(a*3+seed)*0.5+Math.sin(a*5+seed*2.7)*0.3);
+    const x=Math.cos(a)*rx*j, y=Math.sin(a)*rz*j;
+    if(i===0)s.moveTo(x,y); else s.lineTo(x,y);
+  }
+  return new THREE.ShapeGeometry(s,24);
+}
+function mountain(w,h,bumps,seed){
+  const s=new THREE.Shape(); s.moveTo(-w/2,0);
+  let x=-w/2;
+  for(let i=0;i<bumps;i++){
+    const bw=w/bumps, r1=Math.sin(seed+i*2.7)*0.5+0.5, r2=Math.sin(seed*1.7+i*1.3)*0.5+0.5;
+    s.quadraticCurveTo(x+bw*(0.2+0.3*r1), h*(0.55+0.45*r2), x+bw, h*(0.18+0.4*r1));
+    x+=bw;
+  }
+  s.lineTo(w/2,0); s.closePath();
+  return new THREE.ShapeGeometry(s);
+}
+
+const world = new THREE.Group(); scene.add(world);
+function put(geo,m,x,y,z,ry=0,rz=0,parent=world){
+  const msh=new THREE.Mesh(geo,m); msh.position.set(x,y,z);
+  msh.rotation.y=ry; msh.rotation.z=rz; parent.add(msh); return msh;
+}
+
+/* ============ modular building kit (variation, not repetition) ============ */
+/* house: body + roof + door/window, many variants; used with hand-authored params */
+function mkHouse(o){
+  const g=new THREE.Group();
+  const w=o.w??1, h=o.h??1.4, d=o.d??0.9;
+  const body=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), o.body); body.position.y=h/2; g.add(body);
+  const rt=o.roof??'flat';
+  if(rt==='flat'){
+    const r=new THREE.Mesh(new THREE.BoxGeometry(w*1.14,h*0.09+0.05,d*1.14), o.rMat??M.cream());
+    r.position.y=h+0.04; g.add(r);
+  }else if(rt==='cone'){
+    const r=new THREE.Mesh(new THREE.ConeGeometry(w*0.62,h*0.5,4+((o.seed??0)%3)*4), o.rMat??M.coral());
+    r.position.y=h+h*0.24; r.rotation.y=0.4; g.add(r);
+  }else if(rt==='dome'){
+    const r=new THREE.Mesh(new THREE.SphereGeometry(w*0.5,14,10,0,Math.PI*2,0,Math.PI/2), o.rMat??M.pink());
+    r.scale.y=1.25; r.position.y=h; g.add(r);
+  }
+  if(o.door){
+    const dr=new THREE.Mesh(archPlane(w*0.34,h*0.5), M.navyF()); dr.position.set(0,0,d/2+EPS); g.add(dr);
+    const tr=new THREE.Mesh(archTrim(w*0.34,h*0.5,w*0.05), M.creamF()); tr.position.set(0,0,d/2+EPS/2); g.add(tr);
+  }
+  if(o.win){
+    for(let i=0;i<o.win;i++){
+      const wx=(i-(o.win-1)/2)*w*0.4;
+      const wn=new THREE.Mesh(archPlane(w*0.16,h*0.2), o.winMat??M.creamF());
+      wn.position.set(wx,h*0.55,d/2+EPS); g.add(wn);
+    }
+  }
+  if(o.p){ g.position.copy(o.p); }
+  g.rotation.y=o.ry??0; g.scale.setScalar(o.s??1);
+  world.add(g); return g;
+}
+function mkStairs(n,sw,sh,sd,m,parent=world){
+  const g=new THREE.Group();
+  for(let i=0;i<n;i++){
+    const b=new THREE.Mesh(new THREE.BoxGeometry(sw*1.12,sh,sd*(1-i*0.03)),m);
+    b.position.set(i*sw*0.95, sh/2+i*sh, -i*sd*0.06);
+    b.rotation.y=Math.sin(i*2.1)*0.03; g.add(b);
+  }
+  parent.add(g); return g;
+}
+
+/* ================================================================
+   ZONES — authored from the poster (px,py are poster pixels)
+   ================================================================ */
+
+/* ---------- environment: sky, mountains, celestial bodies ---------- */
+{
+  const far={depth:0.55,mottle:0.04};
+  put(mountain(96,6.5,7,1.2), mat(P.mauvePale,P.mauvePale,P.mauvePale,far), -10.2,2.0,-34);
+  put(mountain(84,5.6,6,4.8), mat(P.mauveLight,P.mauveLight,P.mauveLight,{depth:0.35,mottle:0.04}), -9.0,2.25,-30);
+  put(mountain(72,4.6,5,9.1), mat(P.mauve,P.mauve,P.mauve,{depth:0.2,mottle:0.05}), -4.9,2.4,-26);
+  /* celestial counterweights — poster (612,112) yellow, (545,208) pink */
+  const sunP=posterAt(612,112,-31);
+  put(new THREE.CircleGeometry(1.55,48), mat(P.sun,P.sun,P.sun), sunP.x,sunP.y,sunP.z);
+  const pkP=posterAt(545,208,-30.5);
+  put(new THREE.CircleGeometry(0.85,48), mat(P.pinkSun,P.pinkSun,P.pinkSun), pkP.x,pkP.y,pkP.z);
+}
+
+/* ---------- ground pools (anchor the city masses) ---------- */
+{
+  const pool=(rx,rz,seed,irr,col,x,y,z)=>{
+    const b=put(blobShape(rx,rz,seed,irr), mat(col,col,col,{mottle:0.07}), x,y,z);
+    b.rotation.x=-Math.PI/2; return b;
+  };
+  pool(7.0,4.6,2.1,0.22,P.azure,      2.2,0.02, 1.6);   // under right city
+  pool(4.5,3.2,7.7,0.26,P.azure,     -3.6,0.02, 2.4);   // under horn city
+  pool(3.4,2.5,5.7,0.30,P.mauveLight,-6.2,0.015,4.4);
+  /* lateral continuation for wide viewports */
+  pool(5.2,3.4,8.3,0.26,P.azure,    -15.5,0.02, 5.2);
+  pool(3.6,2.4,3.9,0.32,P.mauveLight,12.8,0.015,3.0);
+  pool(4.6,2.8,6.6,0.24,P.azure,     16.5,0.02,-0.8);
+}
+
+/* ---------- dry-brush ribbon builder (approved treatment, parametrised) ---------- */
+function buildRibbon(pts, wStart, wEnd, powr, colors){
+  const curve=new THREE.CatmullRomCurve3(pts,false,'centripetal',0.5);
+  const N=280, up=new THREE.Vector3(0,1,0);
+  const pos=[],uvs=[],idx=[];
+  let arc=0, prev=curve.getPoint(0);
+  for(let i=0;i<=N;i++){
+    const t=i/N, p=curve.getPoint(t), tan=curve.getTangent(t);
+    arc+=p.distanceTo(prev); prev=p.clone();
+    const bin=new THREE.Vector3().crossVectors(up,tan).normalize();
+    const wHalf=(wStart+(wEnd-wStart)*Math.pow(t,powr))/2;
+    const a=p.clone().addScaledVector(bin, wHalf);
+    const b=p.clone().addScaledVector(bin,-wHalf);
+    pos.push(a.x,a.y,a.z,b.x,b.y,b.z);
+    uvs.push(0,arc, 1,arc);
+    if(i<N){const k=i*2; idx.push(k,k+1,k+2, k+1,k+3,k+2);}
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+  g.setIndex(idx); g.computeVertexNormals();
+  const m=new THREE.ShaderMaterial({
+    side:THREE.DoubleSide,
+    uniforms:{
+      uBase:{value:C(colors.base)}, uDeep:{value:C(colors.deep)},
+      uStaff:{value:C('#7ea6cf')}, uStaffOn:{value:colors.staff?1.0:0.0},
+      uEdgeCol:{value:C(P.cream)}, uEdgeOn:{value:colors.edge?1.0:0.0},
+    },
+    vertexShader:/* glsl */`
+      varying vec2 vUv;
+      void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader:/* glsl */`
+      varying vec2 vUv;
+      uniform vec3 uBase,uDeep,uStaff,uEdgeCol; uniform float uStaffOn,uEdgeOn;
+      ${NOISE}
+      void main(){
+        float u=vUv.x, v=vUv.y;
+        float e=min(u,1.0-u);
+        float edgeN = fbm(vec2(v*1.9, u*6.0));
+        float rag   = 0.045 + 0.13*edgeN;
+        if(e < rag){
+          float t=e/rag;
+          float grainy=fbm(vec2(v*14.0, u*40.0));
+          if(t < grainy*0.9) discard;
+        }
+        float fleck=hash(vec2(floor(v*34.0),floor(u*26.0)));
+        if(e<0.20 && fleck>0.86 && vnoise(vec2(v*9.0,u*9.0))>0.45) discard;
+        vec3 col=uBase;
+        float streak=fbm(vec2(v*0.85,u*7.0));
+        col=mix(col,uDeep,smoothstep(0.55,0.9,streak)*0.55);
+        col*=1.0+(fbm(vec2(v*3.1,u*11.0))-0.5)*0.10;
+        /* cream dry-brush edging (flute road treatment) */
+        if(uEdgeOn>0.5){
+          float band=1.0-smoothstep(rag+0.02,rag+0.11,e);
+          col=mix(col,uEdgeCol,band*0.8);
+        }
+        /* faint staff lines (music-road identity) */
+        if(uStaffOn>0.5){
+          float lines=0.0;
+          for(int i=0;i<5;i++){
+            float lu=0.30+0.10*float(i);
+            float dd=abs(u-lu);
+            float wob=(vnoise(vec2(v*2.2,float(i)*7.3))-0.5)*0.012;
+            lines=max(lines,(1.0-smoothstep(0.004,0.010,dd+wob)));
+          }
+          float fade=smoothstep(0.0,0.12,fract(v*0.023))*(0.35+0.4*fbm(vec2(v*1.2,3.7)));
+          col=mix(col,uStaff,lines*0.5*fade);
+        }
+        gl_FragColor=vec4(col,1.0);
+      }`
+  });
+  const mesh=new THREE.Mesh(g,m); world.add(mesh); return mesh;
+}
+
+/* ---------- ZONE 1: conductor origin + great staff ribbon ----------
+   Rises from the conductor at the bottom, past the horn city, dissolving
+   behind the central core — the poster's main left-hand gesture. */
+{
+  const path=[ // [px,py,z] top -> bottom; long sweeping arcs, curls at the conductor
+    [305,470,-2.4],[262,510,-1.6],[196,562,-0.6],[136,640, 0.6],
+    [106,730, 1.8],[118,815, 3.0],[162,882, 4.1],[150,930, 4.8],
+    [205,988, 5.6],[320,1046,6.4],[465,1092,7.0],[600,1130,7.5],
+  ].map(a=>posterAt(a[0],a[1],a[2]));
+  buildRibbon(path, 0.9, 2.4, 1.7, {base:P.cream, deep:P.creamDeep, staff:true});
+
+  /* conductor — tiny navy figure, arms raised (poster ~(152,932)) */
+  const cp=posterAt(152,932,4.82); cp.y+=0.10;
+  const g=new THREE.Group(); g.position.copy(cp); world.add(g);
+  const nv=M.navyF();
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.10,0.42,10),nv); body.position.y=0.21; g.add(body);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(0.095,12,9),nv); head.position.y=0.52; g.add(head);
+  for(const s of [-1,1]){
+    const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.022,0.022,0.30,6),nv);
+    arm.position.set(s*0.13,0.46,0); arm.rotation.z=s*-0.7; g.add(arm);
+  }
+  const baton=new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,0.24,5),M.yellow());
+  baton.position.set(0.24,0.62,0); baton.rotation.z=-0.9; g.add(baton);
+}
+
+/* ---------- ZONE 2: horn city (lower-left) ----------
+   HERO mass: thick triple-coil golden body + huge upward bell dominating the
+   left zone; the miniature city is embedded inside and spills out of the coil. */
+{
+  const gold=M.yellow();
+  const bodyP=posterAt(138,505,0.8);
+  /* purple swash backdrop behind the horn (poster device) */
+  const swash=put(blobShape(3.4,2.7,3.3,0.24),
+    mat(P.mauveLight,P.mauveLight,P.mauveLight,{depth:0.25,mottle:0.06}),0,0,0);
+  swash.position.copy(posterAt(150,545,-8));
+  /* triple coil — poster (30-245, 385-635) */
+  const c1=new THREE.Mesh(new THREE.TorusGeometry(2.05,0.56,16,52),gold);
+  c1.position.copy(bodyP); world.add(c1);
+  const c2=new THREE.Mesh(new THREE.TorusGeometry(1.38,0.40,14,44),gold);
+  c2.position.set(bodyP.x+0.22,bodyP.y-0.14,bodyP.z-0.32); world.add(c2);
+  const c3=new THREE.Mesh(new THREE.TorusGeometry(0.78,0.27,12,36),gold);
+  c3.position.set(bodyP.x-0.12,bodyP.y+0.10,bodyP.z+0.26); world.add(c3);
+  /* neck riser + big bell opening upward — poster (50-210, 285-435) */
+  const bellP=posterAt(128,326,0.8);
+  const neck=new THREE.Mesh(new THREE.CylinderGeometry(0.30,0.36,1.6,14),gold);
+  neck.position.set(bodyP.x-0.5,bodyP.y+2.35,bodyP.z); neck.rotation.z=0.10; world.add(neck);
+  const prof=[]; for(let i=0;i<=12;i++){const t=i/12;
+    prof.push(new THREE.Vector2(0.36+1.55*t*t*t, t*2.9));}
+  const bell=new THREE.Mesh(new THREE.LatheGeometry(prof,28),gold);
+  bell.position.set(bellP.x,bellP.y-1.45,bellP.z); bell.rotation.z=0.16; world.add(bell);
+  /* valve block */
+  for(let i=0;i<3;i++){
+    const v=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.13,1.05,10),gold);
+    v.position.set(bodyP.x+1.15+i*0.34,bodyP.y+0.72,bodyP.z+0.4); world.add(v);
+  }
+
+  /* miniature city embedded in / spilling out of the coil (base-anchored) */
+  const H=[ // px,py(base),z, w,h,d, body,roof, opts
+    [118,545,2.0, 0.85,1.05,0.6,'peach','flat',{door:1}],
+    [155,552,2.3, 0.6,0.9,0.5,'blush','cone',{}],
+    [ 92,568,2.5, 0.75,0.75,0.55,'mint','flat',{door:1}],
+    [138,585,2.8, 0.6,1.25,0.5,'cream','cone',{}],
+    [176,560,1.6, 0.55,0.7,0.45,'lilac','flat',{}],
+    [112,598,3.1, 0.8,0.7,0.55,'azure','flat',{door:1}],
+    [ 66,600,2.2, 0.5,0.85,0.45,'salmon','cone',{}],
+    [162,615,3.3, 0.7,0.8,0.5,'blush','flat',{door:1}],
+    [198,632,3.5, 0.85,0.7,0.6,'peach','flat',{}],
+    [ 86,635,2.9, 0.6,0.6,0.45,'mint','flat',{}],
+  ];
+  for(const [px,py,z,w,h,d,b,r,o] of H)
+    mkHouse({p:posterAt(px,py,z), w,h,d, body:M[b](), roof:r,
+      rMat:r==='cone'?M.coral():M.cream(), door:o.door, seed:px});
+  /* pink-dome church — poster (240-280, 445-545) */
+  const ch=mkHouse({p:posterAt(258,545,0.6), w:0.85,h:1.8,d:0.7, body:M.cream(), roof:'dome',
+    rMat:M.pink(), door:1, win:2, winMat:M.navyF()});
+  const crossV=new THREE.Mesh(new THREE.BoxGeometry(0.045,0.3,0.045),M.yellow());
+  crossV.position.set(0,2.55,0); ch.add(crossV);
+  const crossH=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.045,0.045),M.yellow());
+  crossH.position.set(0,2.47,0); ch.add(crossH);
+  /* little stairs tumbling out of the circle */
+  const st=mkStairs(6,0.26,0.14,0.5,M.yellow());
+  st.position.copy(posterAt(215,645,3.4)); st.rotation.y=0.5;
+}
+
+/* ---------- ZONE 3: central city core ----------
+   Accumulated, interconnected, slightly impossible. Anchored per-building. */
+{
+  /* sizes measured from the poster (1px = 0.0198u), bases anchored at poster bases */
+  /* mint gothic hall with grand arch — poster (285-340, 400-520) */
+  {
+    const p=posterAt(312,520,-2.5);
+    const g=new THREE.Group(); g.position.copy(p); g.rotation.y=-0.03; world.add(g);
+    g.add(new THREE.Mesh(archedWall(1.15,2.0,0.9,[{x:0,w:0.62,h:1.5}]),M.mint()));
+    const tr=new THREE.Mesh(archTrim(0.62,1.5,0.08),M.creamF()); tr.position.z=0.45+EPS; g.add(tr);
+    const roof=new THREE.Mesh(new THREE.ConeGeometry(0.72,0.75,4),M.jade());
+    roof.position.y=2.3; roof.rotation.y=Math.PI/4; g.add(roof);
+    for(const s of [-1,1]){
+      const pin=new THREE.Mesh(new THREE.ConeGeometry(0.09,0.45,8),M.cream());
+      pin.position.set(s*0.52,2.25,0); g.add(pin);
+    }
+  }
+  /* lilac block — poster (390-450, 395-470) */
+  mkHouse({p:posterAt(418,470,-5), w:1.25,h:1.55,d:1.0, body:M.lilac(), roof:'flat', win:2, winMat:M.navyF()});
+  /* cream tower + coral cone — poster (350-385, 500-570) */
+  mkHouse({p:posterAt(368,570,-1.8), w:0.8,h:1.65,d:0.7, body:M.cream(),
+    roof:'cone', rMat:M.coral(), win:1, winMat:M.navyF()});
+  /* mint block with azure terrace — poster (430-470, 480-545) */
+  {
+    const p=posterAt(452,545,-3.4);
+    mkHouse({p, w:1.15,h:1.5,d:0.9, body:M.mint(), roof:'flat', door:1});
+    const t=new THREE.Mesh(new THREE.BoxGeometry(1.6,0.2,1.1),M.azure());
+    t.position.set(p.x+0.7,p.y+1.62,p.z); world.add(t);
+  }
+  /* salmon arch house — poster (325-355, 555-610) */
+  {
+    const p=posterAt(338,610,-0.6);
+    const g=new THREE.Group(); g.position.copy(p); g.rotation.y=0.05; world.add(g);
+    g.add(new THREE.Mesh(archedWall(1.15,1.55,0.8,[{x:0,w:0.6,h:1.1}]),M.salmon()));
+    const r=new THREE.Mesh(new THREE.BoxGeometry(1.3,0.16,0.95),M.cream()); r.position.y=1.62; g.add(r);
+  }
+  /* mid-block towers — widen the mass (poster 200-290, 470-570) */
+  mkHouse({p:posterAt(218,565,-1.5), w:0.95,h:2.1,d:0.8, body:M.mint(), roof:'flat', door:1});
+  mkHouse({p:posterAt(250,545,-2.8), w:0.8,h:2.6,d:0.7, body:M.cream(), roof:'cone', rMat:M.coral()});
+  mkHouse({p:posterAt(284,558,-1.0), w:1.0,h:1.6,d:0.8, body:M.peach(), roof:'flat', win:1, winMat:M.navyF()});
+  /* lower strip of houses — poster (160-305, 590-680) */
+  const strip=[
+    [168,640, 0.6, 1.0,1.15,0.7,'blush','flat',{door:1}],
+    [205,628, 0.2, 0.8,1.5,0.65,'mint','cone',{}],
+    [242,645, 0.8, 1.1,1.0,0.75,'peach','flat',{door:1}],
+    [278,632, 0.4, 0.75,1.25,0.6,'azure','flat',{}],
+    [303,655, 1.3, 0.9,0.95,0.65,'salmon','flat',{door:1}],
+    [232,668, 1.7, 0.7,0.8,0.5,'lilac','cone',{}],
+    [266,678, 2.1, 1.0,0.75,0.7,'cream','flat',{}],
+  ];
+  for(const [px,py,z,w,h,d,b,r,o] of strip)
+    mkHouse({p:posterAt(px,py,z), w,h,d, body:M[b](), roof:r,
+      rMat:r==='cone'?M.coral():M.cream(), door:o.door, seed:px});
+  /* interconnections: rooftop bridge + two stairs */
+  {
+    const a=posterAt(312,520,-2.5), b=posterAt(418,470,-5);
+    const br=new THREE.Mesh(new THREE.BoxGeometry(1.9,0.18,0.55),M.jade());
+    br.position.set((a.x+b.x)/2,(a.y+2.1+b.y+1.55)/2-0.5,(a.z+b.z)/2);
+    br.rotation.y=0.35; br.rotation.z=0.10; world.add(br);
+    const st=mkStairs(7,0.24,0.13,0.5,M.yellow());
+    st.position.copy(posterAt(330,585,-1.0)); st.rotation.y=-0.4;
+    const st2=mkStairs(5,0.22,0.12,0.45,M.yellow());
+    st2.position.copy(posterAt(255,600,0.1)); st2.rotation.y=2.6;
+  }
+}
+
+/* ---------- ZONE 4: woodwind skyline ----------
+   Navy columns with flare + yellow key dots, growing out of the core. */
+function woodwind(pxTop,pyTop,pyBot,z,r){
+  const top=posterAt(pxTop,pyTop,z), bot=posterAt(pxTop,pyBot,z);
+  const h=top.y-bot.y;
+  const g=new THREE.Group(); g.position.set(bot.x,bot.y,bot.z); world.add(g);
+  const nv=M.navyF();
+  const col=new THREE.Mesh(new THREE.CylinderGeometry(r*0.82,r,h,14),nv);
+  col.position.y=h/2; g.add(col);
+  const flare=new THREE.Mesh(new THREE.CylinderGeometry(r*1.9,r*0.82,r*2.6,14),nv);
+  flare.position.y=h+r*1.3; g.add(flare);
+  const tip=new THREE.Mesh(new THREE.CylinderGeometry(r*0.5,r*0.6,r*1.1,10),nv);
+  tip.position.y=h+r*3.0; g.add(tip);
+  for(let i=0;i<6;i++){
+    const k=new THREE.Mesh(new THREE.CircleGeometry(r*0.26,10),M.yellow());
+    k.position.set(r*0.25*Math.sin(i*2.4), h*(0.18+0.115*i), r+EPS); g.add(k);
+  }
+  return g;
+}
+/* four slender needles at staggered heights — impossible minarets */
+woodwind(345,175,500,-4.0,0.30);   // left clarinet
+woodwind(492,138,470,-5.5,0.33);   // right clarinet (tallest)
+woodwind(395,235,480,-4.8,0.20);   // oboe
+woodwind(300,262,462,-3.2,0.155);  // piccolo spire
+
+/* ---------- ZONE 5: trombone bridge ----------
+   Golden diagonal architectural gesture across the centre. */
+{
+  /* two-segment gesture with an elbow — bridges the central and right masses */
+  const gold=M.yellow();
+  const a=posterAt(298,562,0.5), m=posterAt(432,514,0.45), b=posterAt(534,474,0.4);
+  const seg=(p,q)=>{
+    const dir=q.clone().sub(p), len=dir.length(), mid=p.clone().addScaledVector(dir,0.5);
+    const g=new THREE.Group(); g.position.copy(mid); world.add(g);
+    g.lookAt(q); g.rotateY(Math.PI/2);
+    for(const off of [-0.17,0.17]){
+      const t=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,len,12),gold);
+      t.rotation.z=Math.PI/2; t.position.y=off; g.add(t);
+    }
+  };
+  seg(a,m); seg(m,b);
+  const bend=new THREE.Mesh(new THREE.TorusGeometry(0.17,0.12,10,16,Math.PI),gold);
+  bend.position.copy(b); bend.rotation.z=-Math.PI/2; bend.rotation.y=0.3; world.add(bend);
+  /* bell flaring down-left out of the central city */
+  const prof=[]; for(let i=0;i<=10;i++){const t=i/10;
+    prof.push(new THREE.Vector2(0.14+0.62*t*t*t, t*1.25));}
+  const bl=new THREE.Mesh(new THREE.LatheGeometry(prof,22),gold);
+  bl.position.copy(a); bl.rotation.z=Math.PI/2+0.35; world.add(bl);
+  /* slender impossible pier under the elbow */
+  const pier=new THREE.Mesh(archedWall(0.6,2.3,0.5,[{x:0,w:0.34,h:1.5}]),M.cream());
+  pier.position.set(m.x,m.y-2.3,m.z); world.add(pier);
+}
+
+/* ---------- ZONE 6: right-hand city (approved slice, recomposed) ---------- */
+const cityRight=new THREE.Group(); world.add(cityRight);
+{
+  const cput=(geo,m,x,y,z,ry=0)=>put(geo,m,x,y,z,ry,0,cityRight);
+  /* azure aqueduct */
+  cput(archedWall(7.4,4.65,1.7,[{x:-2.35,w:1.5,h:3.35},{x:0,w:1.5,h:3.35},{x:2.35,w:1.5,h:3.35}]),
+    M.azure(),-4.3,0,-2.2,0.05);
+  /* salmon twin-arch house */
+  {
+    const grp=new THREE.Group(); grp.position.set(-0.5,0,0.2); grp.rotation.y=-0.04; cityRight.add(grp);
+    grp.add(new THREE.Mesh(archedWall(4.5,6.5,2.1,[{x:-1.05,w:1.4,h:3.4},{x:1.05,w:1.4,h:3.4}]),M.salmon()));
+    const roof=new THREE.Mesh(new THREE.BoxGeometry(4.95,0.3,2.5),M.cream()); roof.position.y=6.62; grp.add(roof);
+    const chim=new THREE.Mesh(new THREE.BoxGeometry(0.52,0.78,0.52),M.yellow()); chim.position.set(-1.35,7.1,0); grp.add(chim);
+    for(const cx of [-1.05,1.05]){
+      const trim=new THREE.Mesh(archTrim(1.4,3.4,0.16),M.creamF()); trim.position.set(cx,0,1.05+EPS); grp.add(trim);
+    }
+    const win=new THREE.Mesh(archPlane(0.62,1.15),M.creamF()); win.position.set(0,4.6,1.05+EPS); grp.add(win);
+    const winIn=new THREE.Mesh(archPlane(0.44,0.95),M.navyF()); winIn.position.set(0,4.68,1.05+EPS*2); grp.add(winIn);
+  }
+  /* mint tower with turret */
+  {
+    const grp=new THREE.Group(); grp.position.set(3.0,0,-1.5); grp.rotation.y=0.05; cityRight.add(grp);
+    const b1=new THREE.Mesh(new THREE.BoxGeometry(2.5,7.2,2.2),M.mint()); b1.position.y=3.6; grp.add(b1);
+    const band=new THREE.Mesh(new THREE.BoxGeometry(2.7,0.34,2.4),M.cream()); band.position.y=7.25; grp.add(band);
+    const b2=new THREE.Mesh(new THREE.BoxGeometry(1.9,2.2,1.8),M.mint()); b2.position.y=8.5; grp.add(b2);
+    const cap=new THREE.Mesh(new THREE.BoxGeometry(2.15,0.28,2.0),M.cream()); cap.position.y=9.7; grp.add(cap);
+    const drum=new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.66,1.15,20),M.cream()); drum.position.y=10.4; grp.add(drum);
+    const cone=new THREE.Mesh(new THREE.ConeGeometry(0.88,1.5,20),M.coral()); cone.position.y=11.7; grp.add(cone);
+    const ball=new THREE.Mesh(new THREE.SphereGeometry(0.17,14,10),M.yellow()); ball.position.y=12.55; grp.add(ball);
+    const nich=new THREE.Mesh(archPlane(1.35,3.0),M.navyF()); nich.position.set(0,0.55,1.1+EPS); grp.add(nich);
+    const ntr =new THREE.Mesh(archTrim(1.35,3.0,0.15),M.creamF()); ntr.position.set(0,0.55,1.1+EPS/2); grp.add(ntr);
+    for(const [wx,wy] of [[-0.55,5.1],[0.55,5.55]]){
+      const t=new THREE.Mesh(archTrim(0.5,1.0,0.11),M.creamF()); t.position.set(wx,wy,1.1+EPS/2); grp.add(t);
+      const w=new THREE.Mesh(archPlane(0.5,1.0),M.navyF()); w.position.set(wx,wy,1.1+EPS); grp.add(w);
+    }
+  }
+  /* peach house on azure plinth */
+  {
+    const grp=new THREE.Group(); grp.position.set(5.7,0,0.9); grp.rotation.y=-0.06; cityRight.add(grp);
+    const plinth=new THREE.Mesh(new THREE.BoxGeometry(3.7,1.95,2.9),M.azure()); plinth.position.y=0.975; grp.add(plinth);
+    const body=new THREE.Mesh(new THREE.BoxGeometry(3.3,4.7,2.5),M.peach()); body.position.y=4.3; grp.add(body);
+    const roof=new THREE.Mesh(new THREE.BoxGeometry(3.65,0.3,2.85),M.jade()); roof.position.y=6.82; grp.add(roof);
+    const door=new THREE.Mesh(archPlane(1.15,2.3),M.navyF()); door.position.set(-0.55,1.95,1.25+EPS); grp.add(door);
+    const dtr =new THREE.Mesh(archTrim(1.15,2.3,0.15),M.creamF()); dtr.position.set(-0.55,1.95,1.25+EPS/2); grp.add(dtr);
+    const balc=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.32,0.5),M.yellow()); balc.position.set(0.75,4.35,1.35); grp.add(balc);
+    const bw=new THREE.Mesh(archPlane(0.85,1.35),M.navyF()); bw.position.set(0.75,4.5,1.25+EPS); grp.add(bw);
+  }
+  /* blush house */
+  {
+    const grp=new THREE.Group(); grp.position.set(-2.6,0,2.9); grp.rotation.y=0.07; cityRight.add(grp);
+    const body=new THREE.Mesh(new THREE.BoxGeometry(2.1,3.0,1.9),M.blush()); body.position.y=1.5; grp.add(body);
+    const roof=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.26,2.2),M.mint()); roof.position.y=3.12; grp.add(roof);
+    const door=new THREE.Mesh(archPlane(0.85,1.7),M.creamF()); door.position.set(0,0,0.95+EPS); grp.add(door);
+    const din =new THREE.Mesh(archPlane(0.62,1.45),M.navyF()); din.position.set(0,0.08,0.95+EPS*2); grp.add(din);
+  }
+  /* jade rooftop bridge */
+  {
+    const b=new THREE.Mesh(new THREE.BoxGeometry(2.4,0.3,0.95),M.jade());
+    b.position.set(1.35,6.9,-0.6); b.rotation.y=0.12; cityRight.add(b);
+  }
+  /* yellow staircase */
+  {
+    const st=mkStairs(9,0.42,0.215,1.15,M.yellow(),cityRight);
+    st.position.set(2.55,0,2.35);
+  }
+  /* eastern annex — poster's right edge continues past frame */
+  {
+    const grp=new THREE.Group(); grp.position.set(9.4,0,0.2); grp.rotation.y=-0.04; cityRight.add(grp);
+    grp.add(new THREE.Mesh(archedWall(3.0,4.4,1.6,[{x:0,w:1.3,h:3.0}]),M.mint()));
+    const r=new THREE.Mesh(new THREE.BoxGeometry(3.3,0.26,1.9),M.cream()); r.position.y=4.5; grp.add(r);
+    const tw=new THREE.Mesh(new THREE.BoxGeometry(1.4,6.2,1.3),M.lilac()); tw.position.set(2.2,3.1,-0.4); grp.add(tw);
+    const tr=new THREE.Mesh(new THREE.BoxGeometry(1.6,0.24,1.5),M.cream()); tr.position.set(2.2,6.3,-0.4); grp.add(tr);
+  }
+  /* recompose: scale to poster proportion, anchor salmon house to poster (425,745) */
+  cityRight.scale.setScalar(0.55);
+  const anchor=posterAt(425,742,0.3);
+  cityRight.position.set(anchor.x+0.275, anchor.y, anchor.z-0.11);
+}
+
+/* ---------- right-city cascade (poster-anchored) ----------
+   Multiple elevations climbing toward the percussion terrace; counterweights the horn. */
+{
+  /* tall cropped teal tower at the right edge — poster (660-724+, 430-560) */
+  {
+    const p=posterAt(700,560,-3);
+    const g=new THREE.Group(); g.position.copy(p); world.add(g);
+    const b=new THREE.Mesh(new THREE.BoxGeometry(2.0,3.3,1.5),M.mint()); b.position.y=1.65; g.add(b);
+    const cap=new THREE.Mesh(new THREE.BoxGeometry(2.2,0.22,1.7),M.cream()); cap.position.y=3.4; g.add(cap);
+    const nich=new THREE.Mesh(archPlane(0.8,2.0),M.navyF()); nich.position.set(0,0.3,0.75+EPS); g.add(nich);
+    const ntr=new THREE.Mesh(archTrim(0.8,2.0,0.1),M.creamF()); ntr.position.set(0,0.3,0.75+EPS/2); g.add(ntr);
+  }
+  /* lavender block — poster (535-585, 565-620) */
+  mkHouse({p:posterAt(558,618,-2), w:1.05,h:1.35,d:0.85, body:M.lilac(), roof:'flat', win:2, winMat:M.navyF()});
+  /* upper terrace stack with houselet */
+  {
+    const p=posterAt(600,560,-4);
+    const plinth=new THREE.Mesh(new THREE.BoxGeometry(1.7,0.85,1.2),M.azure());
+    plinth.position.set(p.x,p.y+0.42,p.z); world.add(plinth);
+    mkHouse({p:new THREE.Vector3(p.x,p.y+0.85,p.z), w:0.95,h:1.1,d:0.8, body:M.peach(), roof:'flat', door:1});
+    const st=mkStairs(5,0.22,0.13,0.5,M.yellow());
+    st.position.set(p.x-1.4,p.y,p.z+0.3); st.rotation.y=0.1;
+  }
+  /* azure arch row — poster (500-610, 690-780) */
+  {
+    const g=new THREE.Mesh(archedWall(2.3,1.75,0.9,
+      [{x:-0.7,w:0.5,h:1.15},{x:0,w:0.5,h:1.15},{x:0.7,w:0.5,h:1.15}]),M.azure());
+    g.position.copy(posterAt(552,778,0.8)); g.rotation.y=0.06; world.add(g);
+  }
+  /* cascading stairs + two mid houses around the winding path */
+  {
+    const st=mkStairs(8,0.26,0.15,0.6,M.yellow());
+    st.position.copy(posterAt(506,800,1.4)); st.rotation.y=Math.PI-0.35;
+  }
+  mkHouse({p:posterAt(532,662,-0.5), w:0.9,h:1.2,d:0.7, body:M.blush(), roof:'flat', door:1});
+  mkHouse({p:posterAt(586,674, 0.2), w:0.8,h:1.0,d:0.6, body:M.cream(), roof:'cone', rMat:M.coral()});
+}
+
+/* ---------- trumpet proxy rising from the right city — poster (672,470) ---------- */
+{
+  const p=posterAt(672,472,-1);
+  const gold=M.yellow();
+  const g=new THREE.Group(); g.position.copy(p); g.rotation.z=-0.35; world.add(g);
+  const prof=[]; for(let i=0;i<=10;i++){const t=i/10;
+    prof.push(new THREE.Vector2(0.22+0.95*t*t*t, t*1.7));}
+  const bell=new THREE.Mesh(new THREE.LatheGeometry(prof,24),gold);
+  bell.rotation.z=-Math.PI/2; g.add(bell);                 // opens to +x (right)
+  const tube=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,2.6,12),gold);
+  tube.rotation.z=Math.PI/2; tube.position.x=-1.5; g.add(tube);
+  for(let i=0;i<3;i++){
+    const v=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.09,0.6,8),gold);
+    v.position.set(-1.0-i*0.35,-0.28,0); g.add(v);
+  }
+}
+
+/* ---------- ZONE 7: flute-key road (azure, cream-edged) ---------- */
+{
+  /* originates deep inside the right city, tight serpentine weave */
+  const path=[ // [px,py,z] top -> bottom
+    [560,552,-4.0],[604,608,-2.8],[556,662,-1.6],[610,718,-0.4],
+    [568,778, 0.8],[608,846, 2.0],[652,938, 3.0],[686,1040,3.8],
+    [716,1140,4.4],
+  ].map(a=>posterAt(a[0],a[1],a[2]));
+  buildRibbon(path, 0.6, 1.7, 1.2, {base:P.azure, deep:P.azureDeep, edge:true});
+}
+
+/* ---------- ZONE 8: percussion terrace (upper right) ----------
+   Cream mound + timpani + cymbal against the mountains — poster (555-700, 230-330). */
+{
+  const tp=posterAt(628,300,-12);
+  const g=new THREE.Group(); g.position.copy(tp); world.add(g);
+  const mound=new THREE.Mesh(new THREE.SphereGeometry(1,24,14,0,Math.PI*2,0,Math.PI/2),M.cream());
+  mound.scale.set(3.5,1.0,2.1); g.add(mound);
+  /* cream connector path flowing down toward the right city */
+  const cpath=[[642,318,-11.2],[608,362,-9.4],[578,408,-7.6]].map(q=>posterAt(q[0],q[1],q[2]));
+  buildRibbon(cpath, 0.45, 0.75, 1.0, {base:P.cream, deep:P.creamDeep});
+  const timp=(x,r,bodyM)=>{
+    const t=new THREE.Group(); t.position.set(x,0.75,0); g.add(t);
+    const bowl=new THREE.Mesh(new THREE.SphereGeometry(r,18,10,0,Math.PI*2,Math.PI/2,Math.PI/2),bodyM);
+    bowl.position.y=r*0.85; t.add(bowl);
+    const head=new THREE.Mesh(new THREE.CircleGeometry(r*0.98,20),M.peach());
+    head.rotation.x=-Math.PI/2+0.28; head.position.y=r*0.88; t.add(head);
+    for(let i=0;i<3;i++){
+      const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,r*1.1,6),M.navyF());
+      const a=i*2.1+0.5; leg.position.set(Math.sin(a)*r*0.6,0.28,Math.cos(a)*r*0.55);
+      leg.rotation.z=Math.sin(a)*0.35; t.add(leg);
+    }
+    return t;
+  };
+  timp(-1.5,0.78,M.coral()); timp(0.1,0.66,M.yellow()); timp(1.35,0.56,M.coral());
+  /* cymbal on stand */
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.035,0.035,1.7,6),M.navyF());
+  pole.position.set(2.45,1.4,0); g.add(pole);
+  const cym=new THREE.Mesh(new THREE.ConeGeometry(0.55,0.10,20),M.yellow());
+  cym.position.set(2.45,2.3,0); g.add(cym);
+}
+
+/* ---------- distant silhouette cards (quiet background) ---------- */
+function distantCard(x,y,z,s,flip){
+  const g=new THREE.Group(); g.position.set(x,y,z); g.scale.setScalar(s);
+  if(flip) g.scale.x*=-1;
+  const A=mat(P.cardA,P.cardA,P.cardA,{depth:0.6,mottle:0.05});
+  const B=mat(P.cardB,P.cardB,P.cardB,{depth:0.6,mottle:0.05});
+  const add=(geo,m,px,py)=>{const q=new THREE.Mesh(geo,m);q.position.set(px,py,0);g.add(q);};
+  add(new THREE.PlaneGeometry(1.6,3.4),A,-1.2,1.7);
+  add(new THREE.PlaneGeometry(1.3,2.2),A, 0.35,1.1);
+  add(new THREE.PlaneGeometry(1.1,4.4),A, 1.55,2.2);
+  add(new THREE.CircleGeometry(0.62,24),A,0.35,2.6);
+  add(archPlane(0.5,1.1),B,-1.2,0.15);
+  add(archPlane(0.4,0.9),B, 1.55,0.2);
+  world.add(g); return g;
+}
+distantCard(0.6,0.3,-17,1.35,false);
+distantCard(-12.2,-1.0,-21,1.1,true);
+distantCard(10.5,0.8,-15,1.15,true);
+distantCard(-22.0,-0.6,-19,1.2,false);
+
+/* ---------- wide-screen extensions: quiet landscape + cropped architecture ----------
+   No isolated filler clusters; the centre must stay the unmistakable focus. */
+{
+  /* cropped aqueduct entering from the left edge (wide screens only) */
+  const aq=new THREE.Mesh(archedWall(5.2,3.0,1.2,
+    [{x:-1.7,w:1.0,h:2.1},{x:0,w:1.0,h:2.1},{x:1.7,w:1.0,h:2.1}]),
+    mat(P.azure,P.azureDeep,P.azureTop,{depth:0.3}));
+  aq.position.set(-14.5,0,3.0); aq.rotation.y=0.10; world.add(aq);
+  /* low far ridge entering from the right */
+  put(mountain(26,3.2,3,7.7),
+    mat(P.mauveLight,P.mauveLight,P.mauveLight,{depth:0.45,mottle:0.04}), 16.5,1.2,-18);
+}
+
+/* ================= camera + parallax (approved) ================= */
+const camera=new THREE.OrthographicCamera();
+const cur={az:base.az,el:base.el}, tgt={az:base.az,el:base.el};
+function placeCamera(){
+  const {az,el}=cur;
+  camera.position.set(
+    LOOK.x+DIST*Math.sin(az)*Math.cos(el),
+    LOOK.y+DIST*Math.sin(el),
+    LOOK.z+DIST*Math.cos(az)*Math.cos(el));
+  camera.lookAt(LOOK);
+}
+function sizeCamera(){
+  const aspect=innerWidth/innerHeight;
+  let halfH, halfW;
+  if(aspect>=CANON){ halfH=ORTHO_H/2;       halfW=halfH*aspect; }
+  else             { halfW=ORTHO_H*CANON/2; halfH=halfW/aspect; }
+  camera.top=halfH; camera.bottom=-halfH; camera.right=halfW; camera.left=-halfW;
+  camera.near=1; camera.far=120; camera.updateProjectionMatrix();
+}
+sizeCamera(); placeCamera();
+
+addEventListener('mousemove',e=>{
+  const mx=(e.clientX/innerWidth )*2-1;
+  const my=(e.clientY/innerHeight)*2-1;
+  tgt.az=base.az+mx*0.085; tgt.el=base.el-my*0.045;
+});
+addEventListener('mouseout',()=>{tgt.az=base.az; tgt.el=base.el;});
+
+/* ================= post: riso print pass (approved) ================= */
+let rt=null;
+const postScene=new THREE.Scene(), postCam=new THREE.Camera();
+const postMat=new THREE.ShaderMaterial({
+  uniforms:{ tScene:{value:null}, uRes:{value:new THREE.Vector2(1,1)} },
+  vertexShader:/* glsl */`
+    varying vec2 vUv;
+    void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`,
+  fragmentShader:/* glsl */`
+    varying vec2 vUv; uniform sampler2D tScene; uniform vec2 uRes;
+    ${NOISE}
+    void main(){
+      vec2 px=1.0/uRes;
+      vec2 wob=vec2(vnoise(vUv*13.0), vnoise(vUv*13.0+31.7))-0.5;
+      vec2 uv=vUv+wob*px*2.2;
+      float r=texture2D(tScene,uv+vec2( 0.9,-0.5)*px).r;
+      float g=texture2D(tScene,uv).g;
+      float b=texture2D(tScene,uv+vec2(-0.8, 0.6)*px).b;
+      vec3 col=vec3(r,g,b);
+      float fine =hash(floor(vUv*uRes*0.75))-0.5;
+      float fibre=fbm(vUv*vec2(210.0,120.0))-0.5;
+      float blot =fbm(vUv*7.0)-0.5;
+      col*=1.0+fine*0.09+fibre*0.075+blot*0.05;
+      float f1=hash(floor(vUv*uRes*0.5)+7.3);
+      if(f1>0.9965) col=mix(col,vec3(0.969,0.863,0.761),0.55);
+      float f2=hash(floor(vUv*uRes*0.5)+3.1);
+      if(f2>0.997) col*=0.72;
+      float d=distance(vUv,vec2(0.5));
+      col=mix(col,vec3(0.153,0.200,0.541),smoothstep(0.45,0.85,d)*0.14);
+      gl_FragColor=vec4(col,1.0);
+    }`
+});
+postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),postMat));
+
+/* ================= sizing (approved responsive cinematography) ================= */
+function resize(){
+  const w=innerWidth, h=innerHeight;
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.setSize(w,h);
+  sizeCamera();
+  const ow=Math.min(w, h*CANON);
+  const ov=document.getElementById('overlay');
+  ov.style.width=ow+'px'; ov.style.height=(ow*1.5)+'px';
+  const pw=Math.round(w*renderer.getPixelRatio()), ph=Math.round(h*renderer.getPixelRatio());
+  if(rt) rt.dispose();
+  rt=new THREE.WebGLRenderTarget(pw,ph,{samples:4});
+  postMat.uniforms.tScene.value=rt.texture;
+  postMat.uniforms.uRes.value.set(pw,ph);
+}
+addEventListener('resize',resize); resize();
+
+/* ================= overlay UI ================= */
+const overlay=document.getElementById('overlay');
+const btn=document.getElementById('btnOverlay');
+const slider=document.getElementById('opacity');
+function setOverlay(on){
+  overlay.style.display=on?'block':'none';
+  btn.classList.toggle('on',on);
+}
+btn.onclick=()=>setOverlay(overlay.style.display==='none');
+slider.oninput=()=>overlay.style.opacity=slider.value/100;
+addEventListener('keydown',e=>{
+  if(e.key==='o'||e.key==='O') setOverlay(overlay.style.display==='none');
+});
+
+/* ================= loop ================= */
+function tick(){
+  requestAnimationFrame(tick);
+  cur.az+=(tgt.az-cur.az)*0.055; cur.el+=(tgt.el-cur.el)*0.055;
+  placeCamera();
+  renderer.setRenderTarget(rt);
+  renderer.render(scene,camera);
+  renderer.setRenderTarget(null);
+  renderer.render(postScene,postCam);
+}
+tick();
+</script>
+</body>
+</html>
