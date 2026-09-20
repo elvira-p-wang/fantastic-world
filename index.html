@@ -24,6 +24,28 @@
     font-size:10px;z-index:30;display:none}
   #hint.show{display:block}
 
+  /* concert-themed cursor trail: replaces the default pointer with drifting,
+     fading brush-cream music notes — kept off interactive dev controls below */
+  html,body{cursor:none}
+  #ui button,#ui input[type=range]{cursor:pointer}
+  /* background-music toggle: always visible, independent of the dev UI */
+  #soundBtn{position:fixed;left:14px;bottom:14px;z-index:30;width:34px;height:34px;
+    border-radius:50%;border:1px solid rgba(247,220,194,.45);
+    background:rgba(20,25,70,.72);color:#f7dcc2;font-size:15px;line-height:1;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    font-family:ui-monospace,Menlo,monospace}
+  #soundBtn.muted{opacity:.5}
+  #cursorTrail{position:fixed;inset:0;pointer-events:none;z-index:25;overflow:hidden}
+  .trailNote{position:absolute;color:#f7dcc2;
+    transform:translate(-50%,-50%) rotate(0deg) scale(1);
+    filter:drop-shadow(0 1px 2px rgba(20,25,70,.35));
+    pointer-events:none;user-select:none;will-change:transform,opacity;
+    animation:noteFade .85s ease-out forwards}
+  @keyframes noteFade{
+    0%{opacity:.92;transform:translate(-50%,-50%) translate(0,0) rotate(0deg) scale(1)}
+    100%{opacity:0;transform:translate(-50%,-50%) translate(var(--dx),-28px) rotate(var(--rot)) scale(.55)}
+  }
+
   /* ============ poster graphic layer: title / subtitle / date ============
      Real crops from the artwork — crisp brush lettering, never a font.
      Three layout variants share one verified-safe placement corridor:
@@ -69,48 +91,20 @@
      grows upward without reaching the right-city fringe (ends ~py850,
      i.e. ~78%). All three variants stay inside that margin. */
 
-  /* ---- Variant A: editorial asymmetric — conservative, generous margins ---- */
-  [data-variant="A"] .type-title{left:2.5%;top:3.0%;width:36%}
-  [data-variant="A"] .ensemble-block{left:2.8%;top:15.3%}
-  [data-variant="A"] .ensemble-line{font-size:clamp(9px,1.05vw,13px);letter-spacing:.12em}
-  [data-variant="A"] .type-info{right:16%;bottom:5.5%}
-  [data-variant="A"] .info-main{font-size:clamp(9px,1.05vw,13px);letter-spacing:.09em}
-  [data-variant="A"] .info-sub{font-size:clamp(7.5px,0.85vw,10.5px)}
-  [data-variant="A"] .rule{display:none}
-
-  /* ---- Variant B: original-poster inspired — tighter rhythm, slightly larger ---- */
-  [data-variant="B"] .type-title{left:2.2%;top:2.2%;width:38%}
-  [data-variant="B"] .ensemble-block{left:2.5%;top:14.6%}
-  [data-variant="B"] .ensemble-line{font-size:clamp(9.5px,1.1vw,13.5px);letter-spacing:.10em}
-  [data-variant="B"] .type-info{right:16%;bottom:4.5%}
-  [data-variant="B"] .info-main{font-size:clamp(9.5px,1.1vw,13.5px);letter-spacing:.07em}
-  [data-variant="B"] .info-sub{font-size:clamp(8px,0.9vw,11px)}
-  [data-variant="B"] .rule{display:none}
-
-  /* ---- Variant C: experimental — corner-hugging title + rule, airier info block ---- */
-  [data-variant="C"] .type-title{left:1.8%;top:1.8%;width:37%}
-  [data-variant="C"] .rule{left:2.0%;top:14.0%;width:32%}
-  [data-variant="C"] .ensemble-block{left:2.0%;top:15.6%}
-  [data-variant="C"] .ensemble-line{font-size:clamp(10px,1.2vw,15px);letter-spacing:.14em}
-  [data-variant="C"] .type-info{right:16%;bottom:7.5%}
-  [data-variant="C"] .info-main{font-size:clamp(9.5px,1.15vw,14px);letter-spacing:.1em}
-  [data-variant="C"] .info-sub{font-size:clamp(8px,0.95vw,11.5px)}
-  [data-variant="C"] .info-group + .info-group{margin-top:.6em}
-
-  /* ---- variant switcher (dev tool for this review round) ---- */
-  #varSwitch{position:fixed;top:12px;left:12px;display:flex;gap:6px;z-index:30;
-    background:rgba(20,25,70,.72);border:1px solid rgba(247,220,194,.25);
-    border-radius:8px;padding:6px;font-family:ui-monospace,Menlo,monospace}
-  #varSwitch button{background:none;border:1px solid rgba(247,220,194,.45);
-    color:#f7dcc2;border-radius:5px;padding:3px 10px;font:inherit;font-size:11px;
-    cursor:pointer}
-  #varSwitch button.on{background:#f7dcc2;color:#2f3f9d}
+  /* ---- Locked layout (formerly Variant A): editorial asymmetric — conservative, generous margins ---- */
+  .type-title{left:2.5%;top:3.0%;width:36%}
+  .ensemble-block{left:2.8%;top:15.3%}
+  .ensemble-line{font-size:clamp(9px,1.05vw,13px);letter-spacing:.12em}
+  .type-info{right:16%;bottom:5.5%}
+  .info-main{font-size:clamp(9px,1.05vw,13px);letter-spacing:.09em}
+  .info-sub{font-size:clamp(7.5px,0.85vw,10.5px)}
+  .rule{display:none}
 </style>
 </head>
 <body>
 <img id="overlay" src="poster.png" alt="">
-<div id="posterLayer" data-variant="A"><div class="pl-inner" id="plInner">
-  <div class="type-title"><img src="title.png" alt="Fantastic World"></div>
+<div id="posterLayer"><div class="pl-inner" id="plInner">
+  <div class="type-title"><img src="title.png" alt="Fantastical Worlds"></div>
   <div class="rule"></div>
   <div class="ensemble-block">
     <div class="ensemble-line">Sydney University</div>
@@ -133,16 +127,13 @@
     </div>
   </div>
 </div></div>
-<div id="varSwitch">
-  <button data-v="A" class="on">A</button>
-  <button data-v="B">B</button>
-  <button data-v="C">C</button>
-</div>
 <div id="ui">
   <button id="btnOverlay">poster&nbsp;[O]</button>
   <input id="opacity" type="range" min="0" max="100" value="50">
 </div>
 <div id="hint">move mouse for parallax · ` to hide dev UI</div>
+<audio id="bgm" src="bgm.mp3" loop preload="auto"></audio>
+<button id="soundBtn" class="muted" aria-label="toggle background music" title="music">♪</button>
 
 <script type="importmap">
 { "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js" } }
@@ -1281,14 +1272,54 @@ function setOverlay(on){
 btn.onclick=()=>setOverlay(overlay.style.display==='none');
 slider.oninput=()=>overlay.style.opacity=slider.value/100;
 
-/* typography layout variant switcher — A/B/C review round only */
-const posterLayer=document.getElementById('posterLayer');
-const varButtons=[...document.querySelectorAll('#varSwitch button')];
-function setVariant(v){
-  posterLayer.dataset.variant=v;
-  varButtons.forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+/* ================= cursor: concert-themed trailing notes ================= */
+const trailLayer=document.createElement('div');
+trailLayer.id='cursorTrail';
+document.body.appendChild(trailLayer);
+const NOTE_GLYPHS=['♪','♫'];
+let lastSpawn=0;
+function spawnNote(x,y){
+  const el=document.createElement('span');
+  el.className='trailNote';
+  el.textContent=NOTE_GLYPHS[Math.random()<0.5?0:1];
+  const size=(11+Math.random()*9).toFixed(1);
+  const rot=(Math.random()*46-23).toFixed(1);
+  const dx=(Math.random()*24-12).toFixed(1);
+  el.style.left=x+'px'; el.style.top=y+'px';
+  el.style.fontSize=size+'px';
+  el.style.setProperty('--rot',rot+'deg');
+  el.style.setProperty('--dx',dx+'px');
+  trailLayer.appendChild(el);
+  el.addEventListener('animationend',()=>el.remove());
 }
-varButtons.forEach(b=>b.onclick=()=>setVariant(b.dataset.v));
+addEventListener('pointermove',e=>{
+  const now=performance.now();
+  if(now-lastSpawn<50) return;
+  lastSpawn=now;
+  spawnNote(e.clientX,e.clientY);
+});
+
+/* ================= background music ================= */
+const bgm=document.getElementById('bgm');
+const soundBtn=document.getElementById('soundBtn');
+bgm.volume=0.4;
+let musicOn=false;
+function setMusic(on){
+  musicOn=on;
+  soundBtn.classList.toggle('muted',!on);
+  if(on) bgm.play().catch(()=>{}); else bgm.pause();
+}
+soundBtn.onclick=()=>setMusic(!musicOn);
+// try autoplay immediately; browsers may block it until a user gesture
+bgm.play().then(()=>setMusic(true)).catch(()=>setMusic(false));
+// fallback: start on the first interaction if autoplay was blocked
+function primeOnce(){
+  if(!musicOn) setMusic(true);
+  removeEventListener('pointerdown',primeOnce);
+  removeEventListener('keydown',primeOnce);
+}
+addEventListener('pointerdown',primeOnce,{once:true});
+addEventListener('keydown',primeOnce,{once:true});
 
 addEventListener('keydown',e=>{
   if(e.key==='o'||e.key==='O') setOverlay(overlay.style.display==='none');
@@ -1296,9 +1327,6 @@ addEventListener('keydown',e=>{
     const on=uiPanel.classList.toggle('show'); hintEl.classList.toggle('show',on);
     if(!on) setOverlay(false);
   }
-  if(e.key==='a'||e.key==='A') setVariant('A');
-  if(e.key==='b'||e.key==='B') setVariant('B');
-  if(e.key==='c'||e.key==='C') setVariant('C');
 });
 
 /* ================= loop ================= */
