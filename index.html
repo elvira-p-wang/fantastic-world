@@ -297,7 +297,7 @@
     </div>
     <div class="cta-row">
       <button class="prog-btn" id="progBtn" type="button">Programme</button>
-      <a class="book-btn" href="https://boxoffice-music.sydney.edu.au/WEBPAGES/EntaWebShow/ShowDatesCombo.aspx" target="_blank" rel="noopener">Book Tickets</a>
+      <a class="book-btn" href="https://boxoffice-music.sydney.edu.au/tiny/SUWO102026" target="_blank" rel="noopener">Book Tickets</a>
     </div>
   </div>
 </div></div>
@@ -328,6 +328,18 @@
 <audio id="bgm" src="bgm.mp3" loop preload="auto"></audio>
 <button id="soundBtn" class="muted" aria-label="toggle background music" title="music">♪</button>
 
+<script>
+/* safety net for in-app browsers (Instagram etc.) that can't run the 3D scene:
+   if the intro never starts, tell the visitor how to open it in a real browser */
+setTimeout(function(){
+  if(document.body.classList.contains('go')) return;
+  var c=document.getElementById('curtain'); if(!c) return;
+  var m=document.createElement('div');
+  m.style.cssText='position:absolute;left:50%;top:calc(50% + 110px);transform:translateX(-50%);width:min(80vw,360px);text-align:center;color:#f7dcc2;font:italic 13px/1.5 Georgia,serif';
+  m.innerHTML='This page needs a full browser.<br>Tap <b>···</b> and choose <b>Open in Safari / Chrome</b>.<br><a href="https://elvira-p-wang.github.io/fantastical-worlds/" style="color:#f99d8b;pointer-events:auto">elvira-p-wang.github.io/fantastical-worlds</a>';
+  c.appendChild(m);
+},10500);
+</script>
 <script type="importmap">
 { "imports": { "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js" } }
 </script>
