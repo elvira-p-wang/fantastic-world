@@ -37,7 +37,33 @@
     display:flex;align-items:center;justify-content:center;cursor:pointer;
     font-family:ui-monospace,Menlo,monospace}
   #soundBtn.muted{opacity:.5}
-  #cursorTrail{position:fixed;inset:0;pointer-events:none;z-index:25;overflow:hidden}
+  #cursorTrail{position:fixed;inset:0;pointer-events:none;z-index:36;overflow:hidden}
+
+  /* programme card: opens over the poster, same cream/navy language as the bubbles */
+  #programme{position:fixed;inset:0;z-index:35;display:flex;align-items:center;
+    justify-content:center;background:rgba(20,25,70,.6);opacity:0;visibility:hidden;
+    transition:opacity .35s ease,visibility 0s linear .35s}
+  #programme.open{opacity:1;visibility:visible;transition:opacity .35s ease}
+  .prog-card{position:relative;width:min(560px,92vw);max-height:86vh;overflow:auto;
+    background:#f7dcc2;color:#27338a;border-radius:14px;padding:2em 2.2em 1.6em;
+    font-family:Georgia,'Times New Roman',serif;
+    transform:translateY(14px) scale(.98);transition:transform .45s cubic-bezier(.2,1.1,.4,1)}
+  #programme.open .prog-card{transform:none}
+  .prog-card h2{margin:0;font-size:clamp(16px,2.2vw,22px);font-style:italic;font-weight:400;
+    letter-spacing:.02em}
+  .prog-card .prog-sub{margin:.25em 0 1.1em;font-size:11px;letter-spacing:.14em;
+    text-transform:uppercase;opacity:.65}
+  .prog-card ul{list-style:none;margin:0;padding:0}
+  .prog-card li{display:flex;justify-content:space-between;align-items:baseline;gap:1.2em;
+    padding:.55em 0;border-top:1px solid rgba(39,51,142,.18);font-size:clamp(12px,1.4vw,15px)}
+  .prog-card li:first-child{border-top:none}
+  .prog-card li span{font-size:.82em;font-style:italic;opacity:.7;text-align:right;
+    white-space:nowrap}
+  .prog-close{position:absolute;top:.7em;right:.9em;background:none;border:none;
+    color:#27338a;font-size:22px;line-height:1;cursor:pointer;opacity:.7}
+  .prog-close:hover{opacity:1}
+  @media (max-width:520px){.prog-card li{flex-direction:column;gap:.1em}
+    .prog-card li span{text-align:left;white-space:normal}}
   .trailNote{position:absolute;color:#f7dcc2;
     transform:translate(-50%,-50%) rotate(0deg) scale(1);
     filter:drop-shadow(0 1px 2px rgba(20,25,70,.35));
@@ -81,7 +107,14 @@
   .info-group{display:flex;align-items:baseline;justify-content:flex-end;gap:.55em}
   .info-group + .info-group{margin-top:.42em}
   /* ticket CTA: flat salmon pill from the poster palette; links out to the box office */
-  .book-btn{display:block;margin:.85em 0 .1em auto;width:max-content;pointer-events:auto;
+  .cta-row{display:flex;justify-content:flex-end;align-items:center;gap:.6em;margin:.85em 0 .1em}
+  .prog-btn{pointer-events:auto;cursor:pointer;background:transparent;color:#f7dcc2;
+    font-family:Georgia,'Times New Roman',serif;font-weight:700;text-transform:uppercase;
+    letter-spacing:.14em;font-size:clamp(9px,1.05vw,13px);padding:.62em 1.3em;
+    border-radius:999px;border:2px solid rgba(247,220,194,.7);
+    transition:background .15s,color .15s,transform .15s}
+  .prog-btn:hover{background:#f7dcc2;color:#27338a;transform:translateY(-1px)}
+  .book-btn{display:inline-block;margin:0;width:max-content;pointer-events:auto;
     cursor:pointer;text-decoration:none;background:#f99d8b;color:#27338a;
     font-family:Georgia,'Times New Roman',serif;font-weight:700;text-transform:uppercase;
     letter-spacing:.14em;font-size:clamp(9px,1.05vw,13px);padding:.62em 1.3em;
@@ -208,9 +241,31 @@
         <div class="info-sub">7:00 PM</div>
       </div>
     </div>
-    <a class="book-btn" href="https://boxoffice-music.sydney.edu.au/WEBPAGES/EntaWebShow/ShowDatesCombo.aspx" target="_blank" rel="noopener">Book Tickets</a>
+    <div class="cta-row">
+      <button class="prog-btn" id="progBtn" type="button">Programme</button>
+      <a class="book-btn" href="https://boxoffice-music.sydney.edu.au/WEBPAGES/EntaWebShow/ShowDatesCombo.aspx" target="_blank" rel="noopener">Book Tickets</a>
+    </div>
   </div>
 </div></div>
+<div id="programme" aria-hidden="true">
+  <div class="prog-card" role="dialog" aria-label="Programme">
+    <button class="prog-close" id="progClose" type="button" aria-label="Close">×</button>
+    <h2 style="margin-bottom:.9em">On the programme</h2>
+    <ul>
+      <li>Howl’s Moving Castle: Symphonic Fantasy for Band<span>Joe Hisaishi, arr. Yo Goto</span></li>
+      <li>Stardust Crusaders<span>Yugo Kanno, arr. Miyagawa</span></li>
+      <li>The Devil Went Down to Georgia<span>Charlie Daniels, arr. Brown</span></li>
+      <li>Mother of a Revolution<span>Thomas</span></li>
+      <li>Ancient Flower<span>Nishimura</span></li>
+      <li>Danzón No. 2<span>Arturo Márquez, arr. Nickel</span></li>
+      <li>Overture: “Beyond the Darial Pass”<span>Shaun Ji-Thompson</span></li>
+      <li>Blood Water<span>Jasmine Good</span></li>
+      <li>Shifting Atmospheres<span>Riley Dunlop</span></li>
+      <li>Children’s March: “Over the Hills and Far Away”<span>Percy Grainger, ed. Rogers</span></li>
+      <li>Primula<span>Kato</span></li>
+    </ul>
+  </div>
+</div>
 <div id="ui">
   <button id="btnOverlay">poster&nbsp;[O]</button>
   <input id="opacity" type="range" min="0" max="100" value="50">
@@ -1500,6 +1555,17 @@ addEventListener('pointermove',e=>{
   setTimeout(()=>{ SOUND[hit](cell); spawnNote(x,y); },wait*1000);
   hideB(hit);                                      // that instrument has been "answered"
 });
+
+/* ================= programme card ================= */
+const progEl=document.getElementById('programme');
+function setProg(on){
+  progEl.classList.toggle('open',on);
+  progEl.setAttribute('aria-hidden',on?'false':'true');
+}
+document.getElementById('progBtn').onclick=()=>setProg(true);
+document.getElementById('progClose').onclick=()=>setProg(false);
+progEl.addEventListener('click',e=>{ if(e.target===progEl) setProg(false); });
+addEventListener('keydown',e=>{ if(e.key==='Escape') setProg(false); });
 
 /* ================= instruments talk: speech bubbles ================= */
 const bubs={};
