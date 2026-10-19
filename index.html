@@ -78,6 +78,15 @@
     background:rgba(30,40,110,.46);border-radius:7px;padding:.6em .85em}
   .info-group{display:flex;align-items:baseline;justify-content:flex-end;gap:.55em}
   .info-group + .info-group{margin-top:.42em}
+  /* ticket CTA: flat salmon pill from the poster palette; links out to the box office */
+  .book-btn{display:block;margin:.85em 0 .1em auto;width:max-content;pointer-events:auto;
+    cursor:pointer;text-decoration:none;background:#f99d8b;color:#27338a;
+    font-family:Georgia,'Times New Roman',serif;font-weight:700;text-transform:uppercase;
+    letter-spacing:.14em;font-size:clamp(9px,1.05vw,13px);padding:.62em 1.3em;
+    border-radius:999px;border:2px solid #f7dcc2;
+    transition:background .15s,transform .15s}
+  .book-btn:hover{background:#fbafa0;transform:translateY(-1px)}
+  .book-btn:focus-visible{outline:2px solid #f7dcc2;outline-offset:2px}
   .info-dot{width:.5em;height:.5em;min-width:.5em;border-radius:50%;background:#f0a24e}
   .info-lines{display:flex;flex-direction:column;align-items:flex-end;line-height:1.32}
   .info-main{font-family:Georgia,'Times New Roman',serif;color:#f7dcc2;
@@ -125,6 +134,7 @@
         <div class="info-sub">7:00 PM</div>
       </div>
     </div>
+    <a class="book-btn" href="https://boxoffice-music.sydney.edu.au/WEBPAGES/EntaWebShow/ShowDatesCombo.aspx" target="_blank" rel="noopener">Book Tickets</a>
   </div>
 </div></div>
 <div id="ui">
