@@ -120,12 +120,12 @@
      Flat plate (no border/shadow, matches the poster's matte print
      language) keeps it legible over whatever sits behind it. ---- */
   .type-info{position:absolute;text-align:right;pointer-events:none;
-    background:rgba(30,40,110,.46);border-radius:7px;padding:.6em .85em}
+    background:rgba(30,40,110,.74);border-radius:7px;padding:.6em .85em}
   .info-group{display:flex;align-items:baseline;justify-content:flex-end;gap:.55em}
   .info-group + .info-group{margin-top:.42em}
   /* ticket CTA: flat salmon pill from the poster palette; links out to the box office */
   .cta-row{display:flex;justify-content:flex-end;align-items:center;gap:.6em;margin:.85em 0 .1em}
-  .prog-btn{pointer-events:auto;cursor:pointer;background:transparent;color:#f7dcc2;
+  .prog-btn{pointer-events:auto;cursor:pointer;background:rgba(30,40,110,.95);color:#f7dcc2;
     font-family:Georgia,'Times New Roman',serif;font-weight:700;text-transform:uppercase;
     letter-spacing:.14em;font-size:clamp(9px,1.05vw,13px);padding:.62em 1.3em;
     border-radius:999px;border:2px solid rgba(247,220,194,.7);
@@ -235,6 +235,21 @@
   .type-info{right:16%;bottom:5.5%}
   .info-main{font-size:clamp(9px,1.05vw,13px);letter-spacing:.09em}
   .info-sub{font-size:clamp(7.5px,0.85vw,10.5px)}
+  /* landscape/wide windows: the poster box is narrower than the window, so move the
+     info block out to the window's bottom-left margin — clear of the conductor and
+     the ribbon road — left-aligned. Portrait/phones keep the in-poster placement. */
+  @media (min-aspect-ratio:1/1){
+    .type-info{right:auto;bottom:10%;text-align:left;background:none;padding:0;
+      left:calc((min(100vw,66.7vh) - 100vw)/2 + 4vw)}
+    .info-group{justify-content:flex-start}
+    .info-group + .info-group{margin-top:.55em}
+    .info-lines{align-items:flex-start}
+    .cta-row{justify-content:flex-start;margin-top:1.1em}
+    .info-main{font-size:clamp(8.5px,0.78vw,11.5px);letter-spacing:.12em}
+    .info-sub{font-size:clamp(7.5px,0.68vw,10px)}
+    .book-btn,.prog-btn{font-size:clamp(8px,0.68vw,10px);padding:.55em 1.15em;
+      letter-spacing:.12em;border-width:1.5px}
+  }
   .rule{display:none}
 </style>
 </head>
