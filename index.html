@@ -132,16 +132,28 @@
   body.go .ensemble-block{animation:introFade 1s ease-out 4.5s both}
   body.go .type-info{animation:introFade 1s ease-out 5.1s both}
   @keyframes introFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-  #playHint{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:30;
-    color:rgba(247,220,194,.85);font-size:11px;letter-spacing:.08em;pointer-events:none;
-    white-space:nowrap;opacity:0}
-  body.go #playHint{animation:hintLife 9s ease 6s both}
-  @keyframes hintLife{0%{opacity:0}10%{opacity:1}85%{opacity:1}100%{opacity:0}}
+  /* speech bubbles: the instruments "talk" to the visitor; positions are % of the poster box */
+  /* left/top = the point being talked about; the tail tip lands exactly there */
+  .bub{position:absolute;width:max-content;max-width:15%;background:#f7dcc2;color:#27338a;
+    font-family:Georgia,'Times New Roman',serif;font-style:italic;font-weight:400;
+    font-size:clamp(6.5px,0.7vw,9px);line-height:1.3;padding:.45em .7em;border-radius:10px;
+    letter-spacing:.01em;
+    pointer-events:none;opacity:0;transform:translateY(6px) scale(.94);
+    box-shadow:0 1px 3px rgba(20,25,70,.18);
+    transition:opacity .5s ease,transform .6s cubic-bezier(.2,1.4,.4,1)}
+  .bub.show{opacity:1;transform:none;animation:bubBob 3.4s ease-in-out .6s infinite}
+  @keyframes bubBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+  .bub::after{content:"";position:absolute;bottom:-6px;width:12px;height:12px;background:#f7dcc2;
+    transform:rotate(45deg);border-radius:2px}
+  .bub.tl{translate:-22px calc(-100% - 9px)}
+  .bub.tr{translate:calc(-100% + 22px) calc(-100% - 9px)}
+  .bub.tl::after{left:16px}
+  .bub.tr::after{right:16px}
   @media (prefers-reduced-motion:reduce){
     #curtain{display:none}
     .type-title img{clip-path:none;animation:none!important}
     .ensemble-block,.type-info{opacity:1;animation:none!important}
-    #playHint{animation:none!important}
+    .bub.show{animation:none}
   }
   .info-dot{width:.5em;height:.5em;min-width:.5em;border-radius:50%;background:#f0a24e}
   .info-lines{display:flex;flex-direction:column;align-items:flex-end;line-height:1.32}
@@ -170,6 +182,11 @@
 <div id="curtain"><div class="cpanel top"></div><div class="cpanel bot"></div><div class="staff"><i></i><i></i><i></i><i></i><i></i><span class="cnote">♪</span></div></div>
 <img id="overlay" src="poster.png" alt="">
 <div id="posterLayer"><div class="pl-inner" id="plInner">
+  <div class="bub tl" data-for="wake" style="left:20.7%;top:31.3%">Psst… click anywhere and we'll play for you ♪</div>
+  <div class="bub tl" data-for="horn" style="left:20.7%;top:31.3%">Hover over me — I'm shy, but very loud.</div>
+  <div class="bub tr" data-for="timp" style="left:81.5%;top:21.6%">Boom boom! Tap my drums.</div>
+  <div class="bub tr" data-for="key" style="left:71.8%;top:60.3%">Slide along my keys. Yes, the road is a flute.</div>
+  <div class="bub tl" data-for="baton" style="left:24.6%;top:81%">Wave at the maestro. Go on.</div>
   <div class="type-title"><img src="title.png" alt="Fantastical Worlds"></div>
   <div class="rule"></div>
   <div class="ensemble-block">
@@ -199,7 +216,6 @@
   <input id="opacity" type="range" min="0" max="100" value="50">
 </div>
 <div id="hint">move mouse for parallax · ` to hide dev UI</div>
-<div id="playHint">click once · then glide over the instruments ♪</div>
 <audio id="bgm" src="bgm.mp3" loop preload="auto"></audio>
 <button id="soundBtn" class="muted" aria-label="toggle background music" title="music">♪</button>
 
@@ -1395,11 +1411,12 @@ function setReveal(p){
   const g=`linear-gradient(to top,#000 ${p}%,transparent ${p+22}%)`;
   cv.style.webkitMaskImage=g; cv.style.maskImage=g;
 }
+let goTime=null;                                   // when the intro started (for bubble timing)
 if(matchMedia('(prefers-reduced-motion: reduce)').matches){
-  document.body.classList.add('go');
+  document.body.classList.add('go'); goTime=performance.now()-5000;
 } else {
   const startIntro=()=>{
-    document.body.classList.add('go');             // curtain parts, world settles, title writes
+    document.body.classList.add('go'); goTime=performance.now();   // curtain parts, world settles, title writes
     setTimeout(()=>{ const c=document.getElementById('curtain'); if(c) c.remove(); },4000);
   };
   // hold the staff + note for ~2.7s so it reads, longer if the scene is slow to load
@@ -1481,7 +1498,35 @@ addEventListener('pointermove',e=>{
   lastSlot=slot; lastPlay=now; lastInstr=now;
   const x=e.clientX,y=e.clientY;
   setTimeout(()=>{ SOUND[hit](cell); spawnNote(x,y); },wait*1000);
+  hideB(hit);                                      // that instrument has been "answered"
 });
+
+/* ================= instruments talk: speech bubbles ================= */
+const bubs={};
+document.querySelectorAll('.bub').forEach(b=>bubs[b.dataset.for]=b);
+function hideB(k){
+  const b=bubs[k]; if(!b) return;
+  clearTimeout(b._t); b.dataset.done='1'; b.classList.remove('show');
+}
+function showB(k,minAfterGo,life=15000){        // appears minAfterGo ms after the intro starts
+  const b=bubs[k]; if(!b) return;
+  (function wait(){
+    if(b.dataset.done) return;
+    const t=goTime===null?-1:performance.now()-goTime;
+    if(t<minAfterGo){ setTimeout(wait,250); return; }
+    b.classList.add('show');
+    b._t=setTimeout(()=>hideB(k),life);
+  })();
+}
+showB('wake',5600,30000);                          // first nudge, after title + info are in
+let woke=false;
+function wakeUp(){
+  if(woke) return; woke=true;
+  hideB('wake');
+  showB('horn',5600); showB('key',6300); showB('timp',7000); showB('baton',7700);
+}
+addEventListener('pointerdown',wakeUp);
+addEventListener('keydown',wakeUp);
 
 /* duck the background march while the instruments are being played */
 let lastSlot=-1,lastInstr=-1e9;
