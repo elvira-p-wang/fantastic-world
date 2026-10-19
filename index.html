@@ -87,6 +87,24 @@
     transition:background .15s,transform .15s}
   .book-btn:hover{background:#fbafa0;transform:translateY(-1px)}
   .book-btn:focus-visible{outline:2px solid #f7dcc2;outline-offset:2px}
+
+  /* ---- intro: world rises (JS mask on canvas), title is "written", info fades in ---- */
+  .type-title img{animation:titleWrite 2.3s cubic-bezier(.45,.05,.25,1) 2.4s both}
+  @keyframes titleWrite{
+    0%{clip-path:polygon(0 0,0 0,0 59%,0 59%,0 100%,0 100%)}
+    50%{clip-path:polygon(0 0,100% 0,100% 59%,0 59%,0 100%,0 100%)}
+    100%{clip-path:polygon(0 0,100% 0,100% 59%,100% 59%,100% 100%,0 100%)}
+  }
+  .ensemble-block{animation:introFade .9s ease-out 4.5s both}
+  .type-info{animation:introFade .9s ease-out 5.0s both}
+  @keyframes introFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  #playHint{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:30;
+    color:rgba(247,220,194,.85);font-size:11px;letter-spacing:.08em;pointer-events:none;
+    white-space:nowrap;animation:hintLife 9s ease 5.8s both}
+  @keyframes hintLife{0%{opacity:0}10%{opacity:1}85%{opacity:1}100%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){
+    .type-title img,.ensemble-block,.type-info,#playHint{animation:none}
+  }
   .info-dot{width:.5em;height:.5em;min-width:.5em;border-radius:50%;background:#f0a24e}
   .info-lines{display:flex;flex-direction:column;align-items:flex-end;line-height:1.32}
   .info-main{font-family:Georgia,'Times New Roman',serif;color:#f7dcc2;
@@ -142,6 +160,7 @@
   <input id="opacity" type="range" min="0" max="100" value="50">
 </div>
 <div id="hint">move mouse for parallax · ` to hide dev UI</div>
+<div id="playHint">click once · then glide over the instruments ♪</div>
 <audio id="bgm" src="bgm.mp3" loop preload="auto"></audio>
 <button id="soundBtn" class="muted" aria-label="toggle background music" title="music">♪</button>
 
@@ -1312,7 +1331,7 @@ addEventListener('pointermove',e=>{
 /* ================= background music ================= */
 const bgm=document.getElementById('bgm');
 const soundBtn=document.getElementById('soundBtn');
-bgm.volume=0.4;
+bgm.volume=0.17;
 let musicOn=false;
 function setMusic(on){
   musicOn=on;
@@ -1330,6 +1349,108 @@ function primeOnce(){
 }
 addEventListener('pointerdown',primeOnce,{once:true});
 addEventListener('keydown',primeOnce,{once:true});
+
+/* ================= intro: the world rises from the bottom ================= */
+const cv=renderer.domElement;
+function setReveal(p){
+  const g=`linear-gradient(to top,#000 ${p}%,transparent ${p+22}%)`;
+  cv.style.webkitMaskImage=g; cv.style.maskImage=g;
+}
+if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
+  setReveal(-22);
+  const t0=performance.now()+400, dur=3200;
+  (function step(now){
+    const k=Math.min(1,Math.max(0,(now-t0)/dur)), e=1-Math.pow(1-k,3);
+    setReveal(-22+e*122);
+    if(k<1) requestAnimationFrame(step);
+    else { cv.style.maskImage='none'; cv.style.webkitMaskImage='none'; }
+  })(performance.now());
+}
+
+/* ================= playable world: hover the instruments ================= */
+let actx=null, master=null;
+function unlockAudio(){
+  if(actx){ if(actx.state==='suspended') actx.resume(); return; }
+  actx=new (window.AudioContext||window.webkitAudioContext)();
+  master=actx.createGain(); master.gain.value=0.45; master.connect(actx.destination);
+}
+addEventListener('pointerdown',unlockAudio);
+addEventListener('keydown',unlockAudio);
+
+const PENT=[0,2,4,7,9];                       // F major pentatonic: always consonant
+function pf(i,oct=3){                         // scale index -> Hz (F3 base)
+  const o=Math.floor(i/5), s=PENT[((i%5)+5)%5];
+  return 174.61*Math.pow(2,(12*(oct-3+o)+s)/12);
+}
+function voice(f,o){
+  const t=actx.currentTime, a=o.a??0.01, d=o.d??0.35, vol=o.vol??0.25;
+  const osc=actx.createOscillator(); osc.type=o.type||'sine'; osc.frequency.setValueAtTime(f,t);
+  if(o.glideTo) osc.frequency.exponentialRampToValueAtTime(o.glideTo,t+a+d*0.6);
+  const lp=actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=o.cut||2400;
+  const g=actx.createGain(); g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(vol,t+a);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+a+d);
+  osc.connect(lp); lp.connect(g); g.connect(master);
+  osc.start(t); osc.stop(t+a+d+0.05);
+}
+function drum(f0,f1,vol){
+  voice(f0,{type:'sine',a:0.004,d:0.32,vol,glideTo:f1,cut:900});
+}
+const SOUND={
+  horn:   i=>voice(pf(i,3),{type:'triangle',a:0.04,d:0.7,vol:0.30,cut:1400}),
+  tower:  i=>voice(pf(i+3,4),{type:'square',a:0.02,d:0.5,vol:0.10,cut:1800}),
+  slide:  i=>voice(pf(i,3),{type:'sawtooth',a:0.05,d:0.6,vol:0.12,cut:1100,glideTo:pf(i+2,3)}),
+  key:    i=>voice(pf(i+5,5),{type:'sine',a:0.004,d:0.28,vol:0.28,cut:5000}),
+  pluck:  i=>voice(pf(i+2,4),{type:'triangle',a:0.004,d:0.45,vol:0.26,cut:3000}),
+  timp:   i=>i?drum(130,70,0.5):drum(100,55,0.55),
+  cymbal: ()=>voice(5200,{type:'square',a:0.002,d:0.18,vol:0.05,cut:9000}),
+  bell:   i=>voice(pf(i+4,4),{type:'triangle',a:0.03,d:0.6,vol:0.22,cut:2200}),
+  baton:  ()=>[0,2,4,5].forEach((n,j)=>setTimeout(()=>actx&&voice(pf(n,4),{type:'sine',a:0.01,d:0.5,vol:0.22,cut:3500}),j*70)),
+};
+// regions in poster pixels (724x1086); first match wins; cell() picks which note
+const REGIONS=[
+  {id:'slide', r:[305,465,550,590], cell:(u)=>Math.floor(u*7)},
+  {id:'timp',  r:[530,225,650,320],  cell:(u)=>u<0.5?0:1},
+  {id:'cymbal',r:[655,205,700,300],  cell:()=>0},
+  {id:'tower', r:[335,235,510,520],  cell:(u)=>Math.floor(u*7)},
+  {id:'bell',  r:[610,440,672,520],  cell:(u,v)=>Math.floor(v*4)},
+  {id:'key',   r:[410,540,640,790],  cell:(u)=>Math.floor(u*8)},
+  {id:'horn',  r:[40,320,250,650],   cell:(u,v)=>Math.floor((1-v)*6)},
+  {id:'pluck', r:[55,650,360,890],   cell:(u)=>Math.floor(u*7)},
+  {id:'baton', r:[140,865,215,1010], cell:()=>0},
+];
+const plInner=document.getElementById('plInner');
+let curReg=null,curCell=-1,lastPlay=0;
+addEventListener('pointermove',e=>{
+  if(!actx||actx.state!=='running'||!musicOn) return;
+  const b=plInner.getBoundingClientRect();
+  const px=(e.clientX-b.left)/b.width*724, py=(e.clientY-b.top)/b.height*1086;
+  let hit=null,cell=-1;
+  for(const g of REGIONS){
+    const [x0,y0,x1,y1]=g.r;
+    if(px>=x0&&px<=x1&&py>=y0&&py<=y1){ hit=g.id; cell=g.cell((px-x0)/(x1-x0),(py-y0)/(y1-y0)); break; }
+  }
+  if(hit===curReg&&cell===curCell) return;
+  curReg=hit; curCell=cell;
+  const now=performance.now();
+  if(!hit||now-lastPlay<70) return;
+  // snap to the music's 16th-note grid (128 bpm) so hover notes lock in with the march
+  const GRID=60/128/4, ph=bgm.currentTime%GRID;
+  const wait=ph<0.02?0:GRID-ph;
+  const slot=Math.round((bgm.currentTime+wait)/GRID);
+  if(slot===lastSlot) return;
+  lastSlot=slot; lastPlay=now; lastInstr=now;
+  const x=e.clientX,y=e.clientY;
+  setTimeout(()=>{ SOUND[hit](cell); spawnNote(x,y); },wait*1000);
+});
+
+/* duck the background march while the instruments are being played */
+let lastSlot=-1,lastInstr=-1e9;
+const BGM_IDLE=0.17, BGM_DUCK=0.04;
+setInterval(()=>{
+  const target=(performance.now()-lastInstr<1600)?BGM_DUCK:BGM_IDLE;
+  bgm.volume+=(target-bgm.volume)*0.18;
+},50);
 
 addEventListener('keydown',e=>{
   if(e.key==='o'||e.key==='O') setOverlay(overlay.style.display==='none');
