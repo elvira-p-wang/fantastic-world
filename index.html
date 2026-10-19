@@ -28,7 +28,10 @@
 
   /* concert-themed cursor trail: replaces the default pointer with drifting,
      fading brush-cream music notes — kept off interactive dev controls below */
-  html,body{cursor:none}
+  html,body{cursor:none;touch-action:none;overscroll-behavior:none;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+    -webkit-tap-highlight-color:transparent}
+  .prog-card{touch-action:pan-y}
   #ui button,#ui input[type=range]{cursor:pointer}
   /* background-music toggle: always visible, independent of the dev UI */
   #soundBtn{position:fixed;left:14px;bottom:14px;z-index:30;width:34px;height:34px;
@@ -64,6 +67,20 @@
   .prog-close:hover{opacity:1}
   @media (max-width:520px){.prog-card li{flex-direction:column;gap:.1em}
     .prog-card li span{text-align:left;white-space:normal}}
+
+  /* ---- phones: the poster fills the width, so bump every text size above the
+     desktop clamp floors, stack the buttons, and make bubbles readable ---- */
+  @media (max-width:600px){
+    .type-title{width:40%}
+    .ensemble-line{font-size:11px;letter-spacing:.1em}
+    .info-main{font-size:10.5px;letter-spacing:.07em}
+    .info-sub{font-size:9px}
+    .cta-row{flex-direction:column;align-items:flex-end;gap:.5em}
+    .book-btn,.prog-btn{font-size:10px;padding:.7em 1.4em}
+    .bub{font-size:9.5px;max-width:32%}
+    #programme{align-items:flex-end}
+    .prog-card{width:100%;border-radius:16px 16px 0 0;max-height:82vh;padding:1.6em 1.4em 1.3em}
+  }
   .trailNote{position:absolute;color:#f7dcc2;
     transform:translate(-50%,-50%) rotate(0deg) scale(1);
     filter:drop-shadow(0 1px 2px rgba(20,25,70,.35));
@@ -215,11 +232,11 @@
 <div id="curtain"><div class="cpanel top"></div><div class="cpanel bot"></div><div class="staff"><i></i><i></i><i></i><i></i><i></i><span class="cnote">♪</span></div></div>
 <img id="overlay" src="poster.png" alt="">
 <div id="posterLayer"><div class="pl-inner" id="plInner">
-  <div class="bub tl" data-for="wake" style="left:20.7%;top:31.3%">Psst… click anywhere and we'll play for you ♪</div>
-  <div class="bub tl" data-for="horn" style="left:20.7%;top:31.3%">Hover over me — I'm shy, but very loud.</div>
-  <div class="bub tr" data-for="timp" style="left:81.5%;top:21.6%">Boom boom! Tap my drums.</div>
+  <div class="bub tl" data-for="wake" data-touch="Psst… tap anywhere and we'll play for you ♪" style="left:20.7%;top:31.3%">Psst… click anywhere and we'll play for you ♪</div>
+  <div class="bub tl" data-for="horn" data-touch="Drag a finger over me — I'm shy, but very loud." style="left:20.7%;top:31.3%">Hover over me — I'm shy, but very loud.</div>
+  <div class="bub tr" data-for="timp" data-touch="Boom boom! Tap my drums." style="left:81.5%;top:21.6%">Boom boom! Tap my drums.</div>
   <div class="bub tr" data-for="key" style="left:71.8%;top:60.3%">Slide along my keys. Yes, the road is a flute.</div>
-  <div class="bub tl" data-for="baton" style="left:24.6%;top:81%">Wave at the maestro. Go on.</div>
+  <div class="bub tl" data-for="baton" data-touch="Tap the maestro. Go on." style="left:24.6%;top:81%">Wave at the maestro. Go on.</div>
   <div class="type-title"><img src="title.png" alt="Fantastical Worlds"></div>
   <div class="rule"></div>
   <div class="ensemble-block">
@@ -1337,12 +1354,15 @@ function sizeCamera(){
 }
 sizeCamera(); placeCamera();
 
-addEventListener('mousemove',e=>{
+/* parallax: mouse position, or a finger dragging on touch screens */
+addEventListener('pointermove',e=>{
   const mx=(e.clientX/innerWidth )*2-1;
   const my=(e.clientY/innerHeight)*2-1;
   tgt.az=base.az+mx*0.085; tgt.el=base.el-my*0.045;
 });
 addEventListener('mouseout',()=>{tgt.az=base.az; tgt.el=base.el;});
+addEventListener('pointerup',e=>{ if(e.pointerType==='touch'){tgt.az=base.az; tgt.el=base.el;} });
+addEventListener('pointercancel',()=>{tgt.az=base.az; tgt.el=base.el;});
 
 /* ================= post: riso print pass (approved) ================= */
 let rt=null;
@@ -1532,7 +1552,7 @@ const REGIONS=[
 ];
 const plInner=document.getElementById('plInner');
 let curReg=null,curCell=-1,lastPlay=0;
-addEventListener('pointermove',e=>{
+function onInstrument(e){
   if(!actx||actx.state!=='running'||!musicOn) return;
   const b=plInner.getBoundingClientRect();
   const px=(e.clientX-b.left)/b.width*724, py=(e.clientY-b.top)/b.height*1086;
@@ -1554,7 +1574,15 @@ addEventListener('pointermove',e=>{
   const x=e.clientX,y=e.clientY;
   setTimeout(()=>{ SOUND[hit](cell); spawnNote(x,y); },wait*1000);
   hideB(hit);                                      // that instrument has been "answered"
-});
+}
+addEventListener('pointermove',onInstrument);
+// a plain tap (touch) should also play the instrument under the finger
+addEventListener('pointerdown',e=>{ curReg=null; curCell=-1; onInstrument(e); });
+
+/* touch devices have no hover: reword the bubbles */
+if(matchMedia('(hover: none)').matches){
+  document.querySelectorAll('.bub[data-touch]').forEach(b=>b.textContent=b.dataset.touch);
+}
 
 /* ================= programme card ================= */
 const progEl=document.getElementById('programme');
