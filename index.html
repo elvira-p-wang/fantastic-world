@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="background:#2f3f9d">
 <head>
 <meta charset="utf-8">
 <title>Fantastic World — Composition Greybox</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2f3f9d">
+<meta name="color-scheme" content="dark">
 <style>
   html,body{margin:0;height:100%;background:#2f3f9d;overflow:hidden;
     font-family:ui-monospace,Menlo,monospace}
@@ -89,21 +91,57 @@
   .book-btn:focus-visible{outline:2px solid #f7dcc2;outline-offset:2px}
 
   /* ---- intro: world rises (JS mask on canvas), title is "written", info fades in ---- */
-  .type-title img{animation:titleWrite 2.3s cubic-bezier(.45,.05,.25,1) 2.4s both}
+  /* curtain: solid poster blue from the very first paint (no white flash), a staff
+     draws itself and a note skips along it until the scene is ready, then it lifts */
+  #curtain{position:fixed;inset:0;z-index:40;pointer-events:none}
+  .cpanel{position:absolute;left:0;right:0;height:50.2%;background:#2f3f9d;
+    transition:transform 2.4s cubic-bezier(.77,0,.18,1) .5s}
+  .cpanel.top{top:0}.cpanel.bot{bottom:0}
+  body.go .cpanel.top{transform:translateY(-101%)}
+  body.go .cpanel.bot{transform:translateY(101%)}
+  .staff{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:min(46vw,420px);display:flex;flex-direction:column;gap:9px;
+    transition:opacity 1s ease .2s}
+  body.go .staff{opacity:0}
+  .staff i{display:block;height:1.5px;background:#f7dcc2;opacity:.85;
+    transform-origin:left center;transform:scaleX(0);
+    animation:lineDraw 1.4s cubic-bezier(.5,.1,.2,1) forwards}
+  .staff i:nth-child(2){animation-delay:.14s}.staff i:nth-child(3){animation-delay:.28s}
+  .staff i:nth-child(4){animation-delay:.42s}.staff i:nth-child(5){animation-delay:.56s}
+  @keyframes lineDraw{to{transform:scaleX(1)}}
+  /* world settles in slowly behind the parting curtain */
+  body.go canvas{animation:worldSettle 3.6s cubic-bezier(.2,.7,.2,1) .5s both}
+  @keyframes worldSettle{from{transform:scale(1.07)}to{transform:scale(1)}}
+  .cnote{position:absolute;left:0;top:50%;color:#f7dcc2;font-size:34px;line-height:1;
+    transform:translate(-50%,-50%);opacity:0;
+    animation:noteRun 2.2s ease-in-out .5s forwards}
+  @keyframes noteRun{
+    0%{left:0;top:10%;opacity:0}20%{opacity:1;top:62%}40%{top:22%}
+    60%{top:68%}80%{top:30%}100%{left:94%;top:50%;opacity:1}
+  }
+  /* intro: world rises (JS mask on canvas), title is "written", info fades in.
+     Everything waits for body.go so it stays in sync with a slow scene load. */
+  .type-title img{clip-path:polygon(0 0,0 0,0 59%,0 59%,0 100%,0 100%)}
+  body.go .type-title img{animation:titleWrite 2.4s cubic-bezier(.45,.05,.25,1) 2.2s both}
   @keyframes titleWrite{
     0%{clip-path:polygon(0 0,0 0,0 59%,0 59%,0 100%,0 100%)}
     50%{clip-path:polygon(0 0,100% 0,100% 59%,0 59%,0 100%,0 100%)}
     100%{clip-path:polygon(0 0,100% 0,100% 59%,100% 59%,100% 100%,0 100%)}
   }
-  .ensemble-block{animation:introFade .9s ease-out 4.5s both}
-  .type-info{animation:introFade .9s ease-out 5.0s both}
+  .ensemble-block,.type-info{opacity:0}
+  body.go .ensemble-block{animation:introFade 1s ease-out 4.5s both}
+  body.go .type-info{animation:introFade 1s ease-out 5.1s both}
   @keyframes introFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   #playHint{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:30;
     color:rgba(247,220,194,.85);font-size:11px;letter-spacing:.08em;pointer-events:none;
-    white-space:nowrap;animation:hintLife 9s ease 5.8s both}
+    white-space:nowrap;opacity:0}
+  body.go #playHint{animation:hintLife 9s ease 6s both}
   @keyframes hintLife{0%{opacity:0}10%{opacity:1}85%{opacity:1}100%{opacity:0}}
   @media (prefers-reduced-motion:reduce){
-    .type-title img,.ensemble-block,.type-info,#playHint{animation:none}
+    #curtain{display:none}
+    .type-title img{clip-path:none;animation:none!important}
+    .ensemble-block,.type-info{opacity:1;animation:none!important}
+    #playHint{animation:none!important}
   }
   .info-dot{width:.5em;height:.5em;min-width:.5em;border-radius:50%;background:#f0a24e}
   .info-lines{display:flex;flex-direction:column;align-items:flex-end;line-height:1.32}
@@ -129,6 +167,7 @@
 </style>
 </head>
 <body>
+<div id="curtain"><div class="cpanel top"></div><div class="cpanel bot"></div><div class="staff"><i></i><i></i><i></i><i></i><i></i><span class="cnote">♪</span></div></div>
 <img id="overlay" src="poster.png" alt="">
 <div id="posterLayer"><div class="pl-inner" id="plInner">
   <div class="type-title"><img src="title.png" alt="Fantastical Worlds"></div>
@@ -1356,15 +1395,15 @@ function setReveal(p){
   const g=`linear-gradient(to top,#000 ${p}%,transparent ${p+22}%)`;
   cv.style.webkitMaskImage=g; cv.style.maskImage=g;
 }
-if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
-  setReveal(-22);
-  const t0=performance.now()+400, dur=3200;
-  (function step(now){
-    const k=Math.min(1,Math.max(0,(now-t0)/dur)), e=1-Math.pow(1-k,3);
-    setReveal(-22+e*122);
-    if(k<1) requestAnimationFrame(step);
-    else { cv.style.maskImage='none'; cv.style.webkitMaskImage='none'; }
-  })(performance.now());
+if(matchMedia('(prefers-reduced-motion: reduce)').matches){
+  document.body.classList.add('go');
+} else {
+  const startIntro=()=>{
+    document.body.classList.add('go');             // curtain parts, world settles, title writes
+    setTimeout(()=>{ const c=document.getElementById('curtain'); if(c) c.remove(); },4000);
+  };
+  // hold the staff + note for ~2.7s so it reads, longer if the scene is slow to load
+  setTimeout(startIntro,Math.max(0,2700-performance.now()));
 }
 
 /* ================= playable world: hover the instruments ================= */
