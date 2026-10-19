@@ -1331,7 +1331,7 @@ addEventListener('pointermove',e=>{
 /* ================= background music ================= */
 const bgm=document.getElementById('bgm');
 const soundBtn=document.getElementById('soundBtn');
-bgm.volume=0.17;
+bgm.volume=0.32;
 let musicOn=false;
 function setMusic(on){
   musicOn=on;
@@ -1446,7 +1446,7 @@ addEventListener('pointermove',e=>{
 
 /* duck the background march while the instruments are being played */
 let lastSlot=-1,lastInstr=-1e9;
-const BGM_IDLE=0.17, BGM_DUCK=0.04;
+const BGM_IDLE=0.32, BGM_DUCK=0.08;
 setInterval(()=>{
   const target=(performance.now()-lastInstr<1600)?BGM_DUCK:BGM_IDLE;
   bgm.volume+=(target-bgm.volume)*0.18;
